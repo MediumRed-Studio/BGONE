@@ -254,4 +254,20 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 			return m_eAttackProfileComponents[m_eAttackProfileComponentIndex];
 		return null;
 	}
+
+	override void OnAddedToParent(IEntity child, IEntity parent)
+	{
+		if(!parent)
+			return;
+			
+		m_LauncherComp = BGONE_GuidedMissileLauncherComponent.Cast(parent.FindComponent(BGONE_GuidedMissileLauncherComponent));
+		if(!m_LauncherComp)
+			return;
+			
+		if(m_eAttackProfileComponents && !m_eAttackProfileComponents.IsEmpty())
+			m_LauncherComp.SetAvailableAttackProfiles(m_eAttackProfileComponents);
+			
+		if(m_eSeekerTypeComponent)
+			m_LauncherComp.SetAvailableArmingDistances(m_eSeekerTypeComponent.GetAvailableArmingDistances());
+	}
 }
