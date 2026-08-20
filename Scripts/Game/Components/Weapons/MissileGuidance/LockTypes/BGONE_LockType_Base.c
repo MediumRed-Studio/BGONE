@@ -82,43 +82,41 @@ class BGONE_LockType_Base : ScriptAndConfig
 		Turret turret = Turret.Cast(launcher.GetParent());
 		if(turret)
 		{
-			TurretControllerComponent turretComp = TurretControllerComponent.Cast(turret.FindComponent(TurretControllerComponent));
+			TurretComponent turretComp = TurretComponent.Cast(turret.FindComponent(TurretComponent));
 			if(turretComp)
 			{
-				BaseSightsComponent sights = turretComp.GetCurrentSights();
-				if(sights)
-				{
-					aimDir = sights.GetSightsDirection(false);
-					aimPos = sights.GetSightsRearPosition(false);
-					return;
-				}
-				
-				vector mat[4];
-				turret.GetWorldTransform(mat);
-				aimDir = mat[2];
+				aimDir = turretComp.GetAimingDirectionWorld();
 				aimPos = turret.GetOrigin();
 				return;
 			}
+			
+			vector mat[4];
+			turret.GetWorldTransform(mat);
+			aimDir = mat[2];
+			aimPos = turret.GetOrigin();
+			return;
 		}
 
 		SCR_ChimeraCharacter shooter = SCR_ChimeraCharacter.Cast(launcher.GetRootParent());
-		if(!shooter)
-			return;
-
-		BaseWeaponManagerComponent weaponManager = BaseWeaponManagerComponent.Cast(shooter.FindComponent(BaseWeaponManagerComponent));
-		if(weaponManager && weaponManager.GetCurrentWeapon())
+		if(shooter)
 		{
-			BaseSightsComponent sights = weaponManager.GetCurrentWeapon().GetSights();
-			if(sights)
+			AimingComponent headAim = shooter.GetHeadAimingComponent();
+			if(headAim)
 			{
-				aimDir = sights.GetSightsDirection(false);
-				aimPos = sights.GetSightsRearPosition(false);
+				aimDir = headAim.GetAimingDirectionWorld();
+				aimPos = shooter.EyePosition();
 				return;
 			}
+			
+			aimDir = shooter.EyePosition() - launcher.GetOrigin();
+			aimDir.Normalize();
+			aimPos = shooter.EyePosition();
+			return;
 		}
 
-		aimDir = shooter.EyePosition() - launcher.GetOrigin();
-		aimDir.Normalize();
-		aimPos = shooter.EyePosition();
+		vector lmat[4];
+		launcher.GetWorldTransform(lmat);
+		aimDir = lmat[2];
+		aimPos = launcher.GetOrigin();
 	}
 }

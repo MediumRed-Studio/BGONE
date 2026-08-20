@@ -50,15 +50,15 @@ class BGONE_SeekerType_SACLOS : BGONE_SeekerType_Base
 		// Fallback to server values if no client update for > 1.0 second (1000ms)
 		if(GetGame().GetWorld().GetWorldTime() - m_fTimeOfLastAimUpdate > 1000.0)
 		{
-			if(turret)
+			if(turret && turret.GetOwner())
 			{
-				BaseSightsComponent sights = turret.GetCurrentSights();
-				if(sights)
+				TurretComponent turretComp = TurretComponent.Cast(turret.GetOwner().FindComponent(TurretComponent));
+				if(turretComp)
 				{
-					aimDir = sights.GetSightsDirection(false);
-					aimPos = sights.GetSightsRearPosition(false);
+					aimDir = turretComp.GetAimingDirectionWorld();
+					aimPos = turret.GetOwner().GetOrigin();
 				}
-				else if(turret.GetOwner())
+				else
 				{
 					vector mat[4];
 					turret.GetOwner().GetWorldTransform(mat);
@@ -68,21 +68,11 @@ class BGONE_SeekerType_SACLOS : BGONE_SeekerType_Base
 			}
 			else if(shooter)
 			{
-				BaseWeaponManagerComponent weaponManager = BaseWeaponManagerComponent.Cast(shooter.FindComponent(BaseWeaponManagerComponent));
-				if(weaponManager && weaponManager.GetCurrentWeapon())
+				AimingComponent headAim = shooter.GetHeadAimingComponent();
+				if(headAim)
 				{
-					BaseSightsComponent sights = weaponManager.GetCurrentWeapon().GetSights();
-					if(sights)
-					{
-						aimDir = sights.GetSightsDirection(false);
-						aimPos = sights.GetSightsRearPosition(false);
-					}
-					else
-					{
-						aimDir = shooter.EyePosition() - m_eProjectile.GetOrigin();
-						aimDir.Normalize();
-						aimPos = shooter.EyePosition();
-					}
+					aimDir = headAim.GetAimingDirectionWorld();
+					aimPos = shooter.EyePosition();
 				}
 				else
 				{

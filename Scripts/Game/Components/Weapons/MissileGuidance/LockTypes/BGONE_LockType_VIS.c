@@ -70,10 +70,10 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 					{
 						m_wCross = SizeLayoutWidget.Cast(m_wDisplay.FindAnyWidget("Cross"));
 						m_wSeekBox = FrameWidget.Cast(m_wDisplay.FindAnyWidget("SeekBox"));
-						m_wTL = ImageWidget.Cast(m_wDisplay.FindWidget("TL"));
-						m_wTR = ImageWidget.Cast(m_wDisplay.FindWidget("TR"));
-						m_wBL = ImageWidget.Cast(m_wDisplay.FindWidget("BL"));
-						m_wBR = ImageWidget.Cast(m_wDisplay.FindWidget("BR"));
+						m_wTL = ImageWidget.Cast(m_wDisplay.FindAnyWidget("TL"));
+						m_wTR = ImageWidget.Cast(m_wDisplay.FindAnyWidget("TR"));
+						m_wBL = ImageWidget.Cast(m_wDisplay.FindAnyWidget("BL"));
+						m_wBR = ImageWidget.Cast(m_wDisplay.FindAnyWidget("BR"));
 					}
 				}
 			}
