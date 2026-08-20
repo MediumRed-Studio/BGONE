@@ -81,13 +81,15 @@ class BGONE_LockType_PLOS : BGONE_LockType_Base
 	
 	override void StopLock()
 	{
+		super.StopLock();
 		GetGame().GetCallqueue().CallLater(LockLost, 750, false);
 	}
 	
-	protected void LockLost() 
+	override protected void LockLost() 
 	{
 		m_cTargetDataPLOS = new BGONE_TargetData();
 		m_bInitialLockComputed = false;
 		m_fLockDuration = 0;
+		super.LockLost();
 	}
 }

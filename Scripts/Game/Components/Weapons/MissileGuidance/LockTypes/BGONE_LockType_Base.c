@@ -1,5 +1,6 @@
 class BGONE_LockingData_BASE
 {
+	vector lockingPos;
 	float lockingProgress = 0;
 	ref BGONE_TargetData targetData;
 }
