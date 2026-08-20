@@ -25,10 +25,10 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	protected vector m_vLastTargetPosition = Vector(0,0,0);
 	
 	protected float m_fSaclosFixNextUpdateTime = 0;
-	protected float m_fSaclosFixUpdateInterval = 0.05; // 50ms (in seconds)
+	protected float m_fSaclosFixUpdateInterval = 50.0; // 50ms (in milliseconds)
 	
 	protected float m_fSyncPosNextUpdateTime = 0;
-	protected float m_fSyncPosUpdateInterval = 0.05;   // 50ms (in seconds)
+	protected float m_fSyncPosUpdateInterval = 50.0;   // 50ms (in milliseconds)
 	
 	override void OnPostInit(IEntity owner)
 	{
@@ -184,7 +184,9 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	{
 		// Sanitize inputs against NaN / Infinity
 		if(float.IsNaN(aimDir[0]) || float.IsNaN(aimDir[1]) || float.IsNaN(aimDir[2]) ||
-		   float.IsNaN(aimPos[0]) || float.IsNaN(aimPos[1]) || float.IsNaN(aimPos[2]))
+		   float.IsNaN(aimPos[0]) || float.IsNaN(aimPos[1]) || float.IsNaN(aimPos[2]) ||
+		   float.IsInfinity(aimDir[0]) || float.IsInfinity(aimDir[1]) || float.IsInfinity(aimDir[2]) ||
+		   float.IsInfinity(aimPos[0]) || float.IsInfinity(aimPos[1]) || float.IsInfinity(aimPos[2]))
 			return;
 			
 		BGONE_SeekerType_SACLOS seeker = BGONE_SeekerType_SACLOS.Cast(m_eSeekerTypeComponent);

@@ -19,48 +19,48 @@ class BGONE_TargetData : ScriptAndConfig
 	float pitchChange;
 	RplId targetRplId;
 	
-	protected IEntity targetEntity;
-	protected SCR_ChimeraCharacter shooterEntity;
-	protected TurretControllerComponent turretEntity;
+	protected IEntity m_eTargetEntity;
+	protected SCR_ChimeraCharacter m_eShooterEntity;
+	protected TurretControllerComponent m_eTurretEntity;
 	
 	SCR_ChimeraCharacter GetShooterEntity()
 	{
-		if(!shooterEntity && shooterRplId.IsValid())
+		if(!m_eShooterEntity && shooterRplId.IsValid())
 		{
 			RplComponent rpl = RplComponent.Cast(Replication.FindItem(shooterRplId));
 			if(rpl)
-				shooterEntity = SCR_ChimeraCharacter.Cast(rpl.GetEntity());
+				m_eShooterEntity = SCR_ChimeraCharacter.Cast(rpl.GetEntity());
 		}
-		return shooterEntity;
+		return m_eShooterEntity;
 	}
 	
 	IEntity GetTargetEntity()
 	{
-		if(!targetEntity && targetRplId.IsValid())
+		if(!m_eTargetEntity && targetRplId.IsValid())
 		{
 			RplComponent rpl = RplComponent.Cast(Replication.FindItem(targetRplId));
 			if(rpl)
-				targetEntity = rpl.GetEntity();
+				m_eTargetEntity = rpl.GetEntity();
 		}
-		return targetEntity;
+		return m_eTargetEntity;
 	}
 	
 	TurretControllerComponent GetTurretEntity()
 	{
-		if(!turretEntity && turretRplId.IsValid())
+		if(!m_eTurretEntity && turretRplId.IsValid())
 		{
 			RplComponent rpl = RplComponent.Cast(Replication.FindItem(turretRplId));
 			if(rpl && rpl.GetEntity())
-				turretEntity = TurretControllerComponent.Cast(rpl.GetEntity().FindComponent(TurretControllerComponent));
+				m_eTurretEntity = TurretControllerComponent.Cast(rpl.GetEntity().FindComponent(TurretControllerComponent));
 		}
-		return turretEntity;
+		return m_eTurretEntity;
 	}
 	
 	void InvalidateEntities()
 	{
-		targetEntity = null;
-		shooterEntity = null;
-		turretEntity = null;
+		m_eTargetEntity = null;
+		m_eShooterEntity = null;
+		m_eTurretEntity = null;
 	}
 	
 	// Replication Methods (68 Bytes Exact Snapshot)

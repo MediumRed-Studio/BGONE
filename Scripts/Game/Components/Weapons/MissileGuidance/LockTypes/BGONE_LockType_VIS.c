@@ -26,7 +26,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	protected float m_fCurrentLockLossDuration = 0;
 
 	protected float m_fNextScanTime = 0;
-	protected float m_fScanInterval = 0.5; // 500ms in seconds
+	protected float m_fScanInterval = 500.0; // 500ms (in milliseconds)
 	
 	protected Widget m_wDisplay;
 	protected SizeLayoutWidget m_wCross;
@@ -44,6 +44,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	protected ref TraceParam m_TraceParam;
 	protected ref array<IEntity> m_aExcludeEntities;
 	protected ref array<IEntity> m_aCandidateEntities;
+	protected ref BGONE_LockingData_BASE m_LockingData;
 	
 	override void InitLockType(IEntity owner)
 	{
@@ -51,6 +52,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		m_TraceParam = new TraceParam();
 		m_aExcludeEntities = new array<IEntity>();
 		m_aCandidateEntities = new array<IEntity>();
+		m_LockingData = new BGONE_LockingData_BASE();
 	}
 
 	override void StartLock()
@@ -120,18 +122,20 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 				
 				if(!m_bLockEventFired)
 				{
-					ref BGONE_LockingData_BASE data = new BGONE_LockingData_BASE();
-					data.lockingProgress = m_fCurrentLockProgress;
-					data.targetData = m_eTargetData;
+					if(!m_LockingData)
+						m_LockingData = new BGONE_LockingData_BASE();
+						
+					m_LockingData.lockingProgress = m_fCurrentLockProgress;
+					m_LockingData.targetData = m_eTargetData;
 					
 					if(m_fCurrentLockProgress >= 1.0)
 					{
 						m_bLockEventFired = true;
-						m_OnLockAcquired.Invoke(data);
+						m_OnLockAcquired.Invoke(m_LockingData);
 					}
 					else
 					{
-						m_OnLockStartAcquire.Invoke(data);
+						m_OnLockStartAcquire.Invoke(m_LockingData);
 					}
 				}
 			}
@@ -306,11 +310,13 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 			
 		if(currentLockProgress >= 1.0)
 		{
+			TerminateLockOnAudio();
 			m_eSoundComponent.SoundEvent("SOUND_LOCK_CONFIRMED");
 		}
 		else
 		{
-			m_eSoundComponent.SoundEvent("SOUND_LOCKING_LOOP");
+			if(m_eLockAudioHandle == AudioHandle.Empty)
+				m_eLockAudioHandle = m_eSoundComponent.SoundEvent("SOUND_LOCKING_LOOP");
 		}
 	}
 

@@ -47,8 +47,8 @@ class BGONE_SeekerType_SACLOS : BGONE_SeekerType_Base
 		vector aimDir = m_vAimDir;
 		vector aimPos = m_vAimPos;
 
-		// Fallback to server values if no client update for > 1.0 second
-		if(GetGame().GetWorld().GetWorldTime() - m_fTimeOfLastAimUpdate > 1.0)
+		// Fallback to server values if no client update for > 1.0 second (1000ms)
+		if(GetGame().GetWorld().GetWorldTime() - m_fTimeOfLastAimUpdate > 1000.0)
 		{
 			if(turret)
 			{

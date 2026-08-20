@@ -20,7 +20,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	protected RplComponent m_RplComponent;
 	protected TurretControllerComponent m_eTurretController;
 	protected Turret m_eTurret;
-	protected bool locking;
+	protected bool m_bLocking;
 	protected bool m_bListenersRegistered = false;
 	
 	protected ref BGONE_TargetData m_eLastTargetData;
@@ -187,9 +187,9 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		 	
 		if(!m_eventHandler || (!weaponAds && !turretAds))
 		{
-			if(locking && m_eLockTypeComponent)
+			if(m_bLocking && m_eLockTypeComponent)
 			{
-				locking = false;
+				m_bLocking = false;
 				m_eLockTypeComponent.StopLock();
 			}
 			return;
@@ -207,10 +207,10 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		if(!m_RplComponent || !m_RplComponent.IsOwner())
 			return;
 		
-		locking = (reason == EActionTrigger.DOWN);
+		m_bLocking = (reason == EActionTrigger.DOWN);
 		if(m_eLockTypeComponent)
 		{
-			if(locking)
+			if(m_bLocking)
 				m_eLockTypeComponent.StartLock();
 			else
 				m_eLockTypeComponent.StopLock();
@@ -316,7 +316,9 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	void RpcAsk_SaclosFix(vector aimDir, vector aimPos)
 	{
 		if(float.IsNaN(aimDir[0]) || float.IsNaN(aimDir[1]) || float.IsNaN(aimDir[2]) ||
-		   float.IsNaN(aimPos[0]) || float.IsNaN(aimPos[1]) || float.IsNaN(aimPos[2]))
+		   float.IsNaN(aimPos[0]) || float.IsNaN(aimPos[1]) || float.IsNaN(aimPos[2]) ||
+		   float.IsInfinity(aimDir[0]) || float.IsInfinity(aimDir[1]) || float.IsInfinity(aimDir[2]) ||
+		   float.IsInfinity(aimPos[0]) || float.IsInfinity(aimPos[1]) || float.IsInfinity(aimPos[2]))
 			return;
 			
 		if(m_eLastMissileSaclos)
