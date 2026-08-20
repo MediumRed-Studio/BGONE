@@ -8,99 +8,123 @@ class BGONE_LockingData_BASE
 [BaseContainerProps()]
 class BGONE_LockType_Base : ScriptAndConfig
 {
-	protected ref ScriptInvoker m_OnLockStartAcquire = new ScriptInvoker();
-	protected ref ScriptInvoker m_OnLockAcquired = new ScriptInvoker();
-	protected ref ScriptInvoker m_OnLockLost = new ScriptInvoker();
+	protected ref ScriptInvoker m_OnLockStartAcquire;
+	protected ref ScriptInvoker m_OnLockAcquired;
+	protected ref ScriptInvoker m_OnLockLost;
+	
+	protected ref BGONE_LockingData_BASE m_eLockingData;
+	protected IEntity m_eLauncher;
+	
+	protected bool m_bIsLocking = false;
+	protected float m_fLockDuration = 0;
+	
+	void InitLockType(IEntity owner)
+	{
+		m_eLauncher = owner;
+		m_eLockingData = new BGONE_LockingData_BASE();
+	}
+	
+	void StartLock()
+	{
+		if(!m_eLockingData)
+			m_eLockingData = new BGONE_LockingData_BASE();
+			
+		m_eLockingData.lockingProgress = 0;
+		m_bIsLocking = true;
+		m_fLockDuration = 0;
+	}
+	
+	BGONE_LockingData_BASE UpdateLock(float timeSlice)
+	{
+		if(!m_bIsLocking)
+			return null;
+		
+		if(timeSlice == 0)
+			return null;
+		
+		m_fLockDuration += timeSlice;
+		
+		return m_eLockingData;
+	}
+	
+	void StopLock()
+	{
+		m_bIsLocking = false;
+		m_fLockDuration = 0;
+		if(m_eLockingData)
+		{
+			m_eLockingData.lockingProgress = 0;
+			m_eLockingData.lockingPos = Vector(0,0,0);
+		}
+	}
+	
+	bool IsLocking()
+	{
+		return m_bIsLocking;
+	}
+	
+	BGONE_TargetData GetCurrentTargetData()
+	{
+		return null;
+	}
+	
+	void PlayLockOnAudio(float currentLockProgress)
+	{
+	}
+	
+	void TerminateLockOnAudio()
+	{
+	}
 
 	ScriptInvoker GetOnLockStartAcquire()
 	{
+		if(!m_OnLockStartAcquire)
+			m_OnLockStartAcquire = new ScriptInvoker();
 		return m_OnLockStartAcquire;
 	}
 
 	ScriptInvoker GetOnLockAcquired()
 	{
+		if(!m_OnLockAcquired)
+			m_OnLockAcquired = new ScriptInvoker();
 		return m_OnLockAcquired;
 	}
 
 	ScriptInvoker GetOnLockLost()
 	{
+		if(!m_OnLockLost)
+			m_OnLockLost = new ScriptInvoker();
 		return m_OnLockLost;
 	}
 
-	// Legacy typo alias support
 	ScriptInvoker GetOnLockStartAquire()
 	{
-		return m_OnLockStartAcquire;
+		return GetOnLockStartAcquire();
 	}
 
 	ScriptInvoker GetOnLockAquired()
 	{
-		return m_OnLockAcquired;
+		return GetOnLockAcquired();
 	}
 
-	protected bool m_bIsLocking = false;
-	protected ref BGONE_LockingData_BASE m_eLockingData;
-
-	bool IsLocking()
-	{
-		return m_bIsLocking;
-	}
-
-	void InitLockType(IEntity owner)
-	{
-	}
-
-	void StartLock()
-	{
-		m_bIsLocking = true;
-	}
-
-	void StopLock()
-	{
-		m_bIsLocking = false;
-	}
-
-	void UpdateLock(float timeSlice)
-	{
-	}
-
-	BGONE_TargetData GetCurrentTargetData()
-	{
-		return null;
-	}
-
-	void PlayLockOnAudio(float currentLockProgress)
-	{
-	}
-
-	void TerminateLockOnAudio()
-	{
-	}
-
-	void PlayLockOnAuido(float currentLockProgress)
-	{
-		PlayLockOnAudio(currentLockProgress);
-	}
-
-	protected void LockStartAcquire(BGONE_LockingData_BASE lockingData)
+	protected void LockStartAcquire(BGONE_LockingData_BASE lockingData) 
 	{
 		if(m_OnLockStartAcquire)
 			m_OnLockStartAcquire.Invoke(lockingData);
 	}
 
-	protected void LockAcquired(BGONE_LockingData_BASE lockingData)
+	protected void LockAcquired(BGONE_LockingData_BASE lockingData) 
 	{
 		if(m_OnLockAcquired)
 			m_OnLockAcquired.Invoke(lockingData);
 	}
 
-	protected void LockLost()
+	protected void LockLost() 
 	{
 		if(m_OnLockLost)
 			m_OnLockLost.Invoke();
 	}
 
-	// Legacy typo alias support
 	protected void LockStartAquire(BGONE_LockingData_BASE lockingData)
 	{
 		LockStartAcquire(lockingData);
