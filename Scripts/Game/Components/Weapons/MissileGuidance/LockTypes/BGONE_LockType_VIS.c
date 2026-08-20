@@ -4,7 +4,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	[Attribute("2000", UIWidgets.EditBox, desc: "Max Distance In Meters Launcher Will Lock Onto Target", category: "BGONE")]
 	protected int m_iMaxLockOnRange;
 	
-	[Attribute("100", UIWidgets.EditBox, desc: "Min Distance In Meters Launcher Will Lock Onto Target", category: "BGONE")]
+	[Attribute("5", UIWidgets.EditBox, desc: "Min Distance In Meters Launcher Will Lock Onto Target", category: "BGONE")]
 	protected int m_iMinLockOnRange;
 
 	[Attribute("1.0", UIWidgets.EditBox, desc: "Duration In Seconds Needed To Achieve Full Lock", category: "BGONE")]
@@ -26,7 +26,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	protected float m_fCurrentLockLossDuration = 0;
 
 	protected float m_fNextScanTime = 0;
-	protected float m_fScanInterval = 500.0; // 500ms (in milliseconds)
+	protected float m_fScanInterval = 50.0; // 50ms (20 Hz)
 	
 	protected Widget m_wDisplay;
 	protected SizeLayoutWidget m_wCross;
@@ -74,6 +74,20 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 						m_wTR = ImageWidget.Cast(m_wDisplay.FindAnyWidget("TR"));
 						m_wBL = ImageWidget.Cast(m_wDisplay.FindAnyWidget("BL"));
 						m_wBR = ImageWidget.Cast(m_wDisplay.FindAnyWidget("BR"));
+						
+						if(m_wCross)
+							m_wCross.SetVisible(false);
+							
+						if(m_wSeekBox)
+						{
+							float cx = workspace.DPIUnscale(workspace.GetWidth()) * 0.5;
+							float cy = workspace.DPIUnscale(workspace.GetHeight()) * 0.5;
+							FrameSlot.SetPos(m_wSeekBox, cx - 110.0, cy - 110.0);
+							FrameSlot.SetSize(m_wSeekBox, 220.0, 220.0);
+							m_wSeekBox.SetVisible(true);
+						}
+						
+						m_wDisplay.SetColorInt(Color.GRAY);
 					}
 				}
 			}
@@ -105,6 +119,9 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 
 	override void UpdateLock(float timeSlice)
 	{
+		if(!m_wDisplay)
+			StartLock();
+			
 		float currentTime = GetGame().GetWorld().GetWorldTime();
 		if(currentTime > m_fNextScanTime)
 		{
@@ -112,60 +129,61 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 			m_eTargetData = ScanForTarget();
 		}
 		
-		if(m_eTargetData)
+		if(m_eTargetData && m_eTargetData.GetTargetEntity())
 		{
-			IEntity target = m_eTargetData.GetTargetEntity();
-			if(target)
-			{
-				m_fCurrentLockDuration += timeSlice;
-				m_fCurrentLockProgress = Math.Clamp(m_fCurrentLockDuration / m_fLockAcquiringDuration, 0, 1);
+			m_fCurrentLockLossDuration = 0;
+			m_fCurrentLockDuration += timeSlice;
+			m_fCurrentLockProgress = Math.Clamp(m_fCurrentLockDuration / Math.Max(m_fLockAcquiringDuration, 0.05), 0.0, 1.0);
+			
+			if(!m_LockingData)
+				m_LockingData = new BGONE_LockingData_BASE();
 				
+			m_LockingData.lockingProgress = m_fCurrentLockProgress * 100.0;
+			m_LockingData.targetData = m_eTargetData;
+			
+			if(m_fCurrentLockProgress >= 1.0)
+			{
 				if(!m_bLockEventFired)
 				{
-					if(!m_LockingData)
-						m_LockingData = new BGONE_LockingData_BASE();
-						
-					m_LockingData.lockingProgress = m_fCurrentLockProgress;
-					m_LockingData.targetData = m_eTargetData;
-					
-					if(m_fCurrentLockProgress >= 1.0)
-					{
-						m_bLockEventFired = true;
-						if(m_OnLockAcquired)
-							m_OnLockAcquired.Invoke(m_LockingData);
-					}
-					else
-					{
-						if(m_OnLockStartAcquire)
-							m_OnLockStartAcquire.Invoke(m_LockingData);
-					}
+					m_bLockEventFired = true;
+					if(m_OnLockAcquired)
+						m_OnLockAcquired.Invoke(m_LockingData);
 				}
 			}
 			else
 			{
-				HandleLockLoss(timeSlice);
+				m_bLockEventFired = false;
+				if(m_OnLockStartAcquire)
+					m_OnLockStartAcquire.Invoke(m_LockingData);
 			}
 		}
 		else
 		{
-			HandleLockLoss(timeSlice);
+			if(m_bLockEventFired || m_fCurrentLockProgress > 0)
+			{
+				m_fCurrentLockLossDuration += timeSlice;
+				if(m_fCurrentLockLossDuration >= m_fLockLossDuration)
+				{
+					if(m_OnLockLost)
+						m_OnLockLost.Invoke();
+						
+					m_fCurrentLockProgress = 0;
+					m_fCurrentLockDuration = 0;
+					m_fCurrentLockLossDuration = 0;
+					m_bLockEventFired = false;
+					m_eTargetData = null;
+					TerminateLockOnAudio();
+				}
+			}
+			else
+			{
+				m_fCurrentLockProgress = 0;
+				m_fCurrentLockDuration = 0;
+				m_eTargetData = null;
+			}
 		}
 		
 		UpdateDisplay();
-	}
-
-	protected void HandleLockLoss(float timeSlice)
-	{
-		m_fCurrentLockLossDuration += timeSlice;
-		if(m_fCurrentLockLossDuration >= m_fLockLossDuration)
-		{
-			if(m_bLockEventFired || m_fCurrentLockProgress > 0)
-			{
-				if(m_OnLockLost)
-					m_OnLockLost.Invoke();
-			}
-			StopLock();
-		}
 	}
 
 	protected BGONE_TargetData ScanForTarget()
@@ -186,7 +204,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 			if(dist >= m_iMinLockOnRange && dist <= m_iMaxLockOnRange)
 			{
 				float dot = Math.Clamp(vector.Dot(aimDir, toTarget.Normalized()), -1.0, 1.0);
-				if(Math.Acos(dot) <= 0.35) // ~20 degree cone
+				if(dot >= 0.85) // ~30 degree cone
 				{
 					if(TraceLOS(aimPos, targetPos, currentTarget))
 						return m_eTargetData;
@@ -216,7 +234,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 				continue;
 				
 			float dot = Math.Clamp(vector.Dot(aimDir, toCand.Normalized()), -1.0, 1.0);
-			if(dot < 0.94) // Must be within ~20 degrees of center
+			if(dot < 0.85) // Within ~30 degrees of center
 				continue;
 				
 			if(CheckUnitType(candidate))
@@ -262,12 +280,18 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		if(editable)
 		{
 			EEditableEntityType entityType = editable.GetEntityType();
-			if(m_eUnitTypesToLock && m_eUnitTypesToLock.Contains(entityType))
+			if(!m_eUnitTypesToLock || m_eUnitTypesToLock.IsEmpty() || m_eUnitTypesToLock.Contains(entityType))
 				return true;
 		}
 		
-		// Fallback for vehicles
+		// Fallback for vehicles and characters
 		if(Vehicle.Cast(ent) || Vehicle.Cast(ent.GetRootParent()))
+			return true;
+			
+		if(ent.FindComponent(VehicleControllerComponent) || (ent.GetRootParent() && ent.GetRootParent().FindComponent(VehicleControllerComponent)))
+			return true;
+			
+		if(SCR_ChimeraCharacter.Cast(ent) || CharacterControllerComponent.Cast(ent.FindComponent(CharacterControllerComponent)))
 			return true;
 			
 		return false;
@@ -341,46 +365,86 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		if(!workspace)
 			return;
 			
-		int color = Color.WHITE;
-		if(m_fCurrentLockProgress >= 1.0)
-			color = Color.GREEN;
-		else if(m_fCurrentLockProgress > 0.0)
-			color = Color.YELLOW;
+		float centerScreenX = workspace.DPIUnscale(workspace.GetWidth()) * 0.5;
+		float centerScreenY = workspace.DPIUnscale(workspace.GetHeight()) * 0.5;
 
-		if(m_wCross)
-			m_wCross.SetColorInt(color);
+		vector aimDir, aimPos;
+		GetAimDirAndPosOfLauncher(m_eLauncher, aimDir, aimPos);
+		vector aimScreen = workspace.ProjWorldToScreen(aimPos + (aimDir * 100.0), GetGame().GetWorld());
+		if(aimScreen[2] > 0)
+		{
+			centerScreenX = workspace.DPIUnscale(aimScreen[0]);
+			centerScreenY = workspace.DPIUnscale(aimScreen[1]);
+		}
 
-		if(m_eTargetData && m_eTargetData.GetTargetEntity() && m_wSeekBox)
+		if(m_eTargetData && m_eTargetData.GetTargetEntity())
 		{
 			IEntity target = m_eTargetData.GetTargetEntity();
-			vector minCorner, maxCorner;
-			target.GetBounds(minCorner, maxCorner);
-			
 			vector worldCenter = target.GetOrigin();
 			if(target.GetPhysics())
 				worldCenter = target.CoordToParent(target.GetPhysics().GetCenterOfMass());
+			else
+				worldCenter = worldCenter + Vector(0, 1, 0);
 				
 			vector screenPos = workspace.ProjWorldToScreen(worldCenter, GetGame().GetWorld());
 			if(screenPos[2] > 0) // Visible in front of camera
 			{
-				float screenX = workspace.DPIUnscale(screenPos[0]);
-				float screenY = workspace.DPIUnscale(screenPos[1]);
+				float targetX = workspace.DPIUnscale(screenPos[0]);
+				float targetY = workspace.DPIUnscale(screenPos[1]);
 				
-				float boxSize = 80.0;
-				FrameSlot.SetPos(m_wSeekBox, screenX - (boxSize * 0.5), screenY - (boxSize * 0.5));
-				FrameSlot.SetSize(m_wSeekBox, boxSize, boxSize);
-				m_wSeekBox.SetVisible(true);
-				m_wSeekBox.SetColorInt(color);
-			}
-			else
-			{
-				m_wSeekBox.SetVisible(false);
+				float lerpFactor = Math.Clamp(m_fCurrentLockProgress * 1.5, 0.0, 1.0);
+				float boxX = Math.Lerp(centerScreenX, targetX, lerpFactor);
+				float boxY = Math.Lerp(centerScreenY, targetY, lerpFactor);
+				
+				float boxSize = Math.Lerp(220.0, 90.0, m_fCurrentLockProgress);
+				
+				if(m_wSeekBox)
+				{
+					FrameSlot.SetPos(m_wSeekBox, boxX - (boxSize * 0.5), boxY - (boxSize * 0.5));
+					FrameSlot.SetSize(m_wSeekBox, boxSize, boxSize);
+					m_wSeekBox.SetVisible(true);
+				}
+				
+				int color = Color.GRAY;
+				if(m_fCurrentLockProgress >= 1.0)
+					color = Color.GREEN;
+				else if(m_fCurrentLockProgress > 0.0)
+					color = Color.YELLOW;
+					
+				m_wDisplay.SetColorInt(color);
+				
+				if(m_wCross)
+				{
+					if(m_fCurrentLockProgress >= 1.0)
+					{
+						m_wCross.SetWidthOverride(46);
+						m_wCross.SetHeightOverride(46);
+						FrameSlot.SetPos(m_wCross, targetX - 23.0, targetY - 23.0);
+						FrameSlot.SetSize(m_wCross, 46.0, 46.0);
+						m_wCross.SetVisible(true);
+						m_wCross.SetColorInt(Color.GREEN);
+					}
+					else
+					{
+						m_wCross.SetVisible(false);
+					}
+				}
+				return;
 			}
 		}
-		else if(m_wSeekBox)
+		
+		// Default: scanning mode without target
+		if(m_wSeekBox)
 		{
-			m_wSeekBox.SetVisible(false);
+			FrameSlot.SetPos(m_wSeekBox, centerScreenX - 110.0, centerScreenY - 110.0);
+			FrameSlot.SetSize(m_wSeekBox, 220.0, 220.0);
+			m_wSeekBox.SetVisible(true);
 		}
+		
+		m_wDisplay.SetColorInt(Color.GRAY);
+		
+		if(m_wCross)
+			m_wCross.SetVisible(false);
 	}
 
 	override BGONE_TargetData GetCurrentTargetData()
