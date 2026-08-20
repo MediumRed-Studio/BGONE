@@ -38,6 +38,7 @@ class BGONE_LockType_Base : ScriptAndConfig
 	}
 
 	protected bool m_bIsLocking = false;
+	protected ref BGONE_LockingData_BASE m_eLockingData;
 
 	bool IsLocking()
 	{
@@ -78,6 +79,35 @@ class BGONE_LockType_Base : ScriptAndConfig
 	void PlayLockOnAuido(float currentLockProgress)
 	{
 		PlayLockOnAudio(currentLockProgress);
+	}
+
+	protected void LockStartAcquire(BGONE_LockingData_BASE lockingData)
+	{
+		if(m_OnLockStartAcquire)
+			m_OnLockStartAcquire.Invoke(lockingData);
+	}
+
+	protected void LockAcquired(BGONE_LockingData_BASE lockingData)
+	{
+		if(m_OnLockAcquired)
+			m_OnLockAcquired.Invoke(lockingData);
+	}
+
+	protected void LockLost()
+	{
+		if(m_OnLockLost)
+			m_OnLockLost.Invoke();
+	}
+
+	// Legacy typo alias support
+	protected void LockStartAquire(BGONE_LockingData_BASE lockingData)
+	{
+		LockStartAcquire(lockingData);
+	}
+
+	protected void LockAquired(BGONE_LockingData_BASE lockingData)
+	{
+		LockAcquired(lockingData);
 	}
 
 	void GetAimDirAndPosOfLauncher(IEntity launcher, out vector aimDir, out vector aimPos)

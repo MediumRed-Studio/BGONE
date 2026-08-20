@@ -44,10 +44,10 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	protected ref array<IEntity> m_aExcludeEntities;
 	protected ref array<IEntity> m_aCandidateEntities;
 	
-	override void InitLockType(IEntity launcher)
+	override void InitLockType(IEntity owner)
 	{
-		super.InitLockType(launcher);
-		m_eLauncher = launcher;
+		super.InitLockType(owner);
+		m_eLauncher = owner;
 		m_TraceParam = new TraceParam();
 		m_aExcludeEntities = new array<IEntity>();
 		m_aCandidateEntities = new array<IEntity>();
@@ -163,7 +163,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		DisplayOrUpdateLockonWidget();
 	}
 
-	protected override void LockLost()
+	override protected void LockLost()
 	{
 		lockingTarget = null;
 		lastTarget = null;
