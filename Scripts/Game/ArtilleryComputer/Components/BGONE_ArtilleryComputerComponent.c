@@ -50,8 +50,18 @@ class BGONE_ArtilleryComputerComponent : ScriptGameComponent
 
 		GetGame().GetMenuManager().OpenMenu(ChimeraMenuPreset.MB_ArtilleryComputer);
 		mapEntity.GetOnSelection().Insert(OnMapSelection);
+		mapEntity.GetOnMapClose().Insert(OnMapClosed);
 
 		GetGame().GetCallqueue().CallLater(CenterMapOnVehicle, 100, false);
+	}
+
+	protected void OnMapClosed(MapConfiguration config)
+	{
+		if(m_MapEntity)
+		{
+			m_MapEntity.GetOnSelection().Remove(OnMapSelection);
+			m_MapEntity.GetOnMapClose().Remove(OnMapClosed);
+		}
 	}
 
 	protected float CalculatePitchAngle(float initialVelocity, float range, float elevationDifference)

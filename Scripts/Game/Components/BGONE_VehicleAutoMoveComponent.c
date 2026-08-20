@@ -60,6 +60,7 @@ class BGONE_VehicleAutoMoveComponent : ScriptGameComponent
 		if (!m_bMovingForward)
 			moveDir = -m_vInitialDir;
 			
-		phys.SetVelocity(moveDir * m_fSpeed);
+		vector currentVel = phys.GetVelocity();
+		phys.SetVelocity(Vector(moveDir[0] * m_fSpeed, currentVel[1], moveDir[2] * m_fSpeed));
 	}
 }

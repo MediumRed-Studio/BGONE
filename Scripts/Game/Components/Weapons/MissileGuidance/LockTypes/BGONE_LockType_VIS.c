@@ -509,32 +509,36 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	{
 		if(!m_eSoundComponent && m_eLauncher)
 		{
-			IEntity root = m_eLauncher.GetRootParent();
-			if(root)
-				m_eSoundComponent = SoundComponent.Cast(root.FindComponent(SoundComponent));
+			m_eSoundComponent = SoundComponent.Cast(m_eLauncher.FindComponent(SoundComponent));
+			if(!m_eSoundComponent)
+			{
+				IEntity root = m_eLauncher.GetRootParent();
+				if(root)
+					m_eSoundComponent = SoundComponent.Cast(root.FindComponent(SoundComponent));
+			}
 		}
 		
 		if(!m_eSoundComponent)
 			return;
 			
-		if(currentLockProgress >= 1.0)
+		m_eSoundComponent.SetSignalValueStr("LockingState", currentLockProgress * 100.0);
+		
+		if(m_eLockAudioHandle == AudioHandle.Invalid)
 		{
-			TerminateLockOnAudio();
-			m_eSoundComponent.SoundEvent("SOUND_LOCK_CONFIRMED");
-		}
-		else
-		{
-			if(m_eLockAudioHandle == AudioHandle.Invalid)
-				m_eLockAudioHandle = m_eSoundComponent.SoundEvent("SOUND_LOCKING_LOOP");
+			m_eLockAudioHandle = m_eSoundComponent.SoundEvent("SOUND_LOCKON_DEFAULT");
 		}
 	}
 
 	override void TerminateLockOnAudio()
 	{
-		if(m_eSoundComponent && m_eLockAudioHandle != AudioHandle.Invalid)
+		if(m_eSoundComponent)
 		{
-			m_eSoundComponent.Terminate(m_eLockAudioHandle);
-			m_eLockAudioHandle = AudioHandle.Invalid;
+			m_eSoundComponent.SetSignalValueStr("LockingState", 0.0);
+			if(m_eLockAudioHandle != AudioHandle.Invalid)
+			{
+				m_eSoundComponent.Terminate(m_eLockAudioHandle);
+				m_eLockAudioHandle = AudioHandle.Invalid;
+			}
 		}
 	}
 
