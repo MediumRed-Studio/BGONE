@@ -1,5 +1,5 @@
 MetaFileClass {
- Name "{D6C5CA589CA1338B}Prefabs/Weapons/Ammo/BGONE_Ammo_Missile_SACLOS2.et"
+ Name "{D6C5CA589CA1338B}Prefabs/Weapons/Ammo/BGONE_Ammo_Missile_SACLOS.et"
  Configurations {
   EntityTemplateResourceClass PC {
   }

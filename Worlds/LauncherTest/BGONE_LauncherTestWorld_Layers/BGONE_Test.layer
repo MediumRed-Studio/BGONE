@@ -9,11 +9,11 @@ $grp SCR_DestructibleBuildingEntity : "{448D2BD96AA205E4}Prefabs/Structures/Hous
   coords 131.71 0 139.807
  }
 }
-Projectile Missile1 : "{5E7D2BE3152D3060}Prefabs/Weapons/Ammo/BGONE_Ammo_Missile_PLOS.et" {
+Projectile Missile1 : "{9F9C7B6642576FB6}Prefabs/Weapons/Ammo/BGONE_Ammo_Missile_PLOS.et" {
  coords 127.735 2.018 129.298
  angleY -93.833
 }
-GenericEntity Launcher4 : "{5F7AE6931FD9801F}Prefabs/Weapons/Launchers/BGONE_Launcher_SACLOS.et" {
+GenericEntity Launcher4 : "{6DEF77B8CDF7528D}Prefabs/Weapons/Launchers/BGONE_Launcher_SACLOS.et" {
  coords 128.209 2.01 129.19
 }
 GenericEntity : "{6CD34D6526429EEC}Prefabs/Props/Furniture/BarTable_01.et" {
@@ -25,7 +25,7 @@ GenericEntity : "{6CD34D6526429EEC}Prefabs/Props/Furniture/BarTable_01.et" {
  coords 127.695 1 128.998
  angleY 177.724
 }
-$grp GenericEntity : "{8D2EE2208265FD4A}Prefabs/Weapons/Launchers/BGONE_Launcher_PLOS.et" {
+$grp GenericEntity : "{E6E70B5FFAC5FEA4}Prefabs/Weapons/Launchers/BGONE_Launcher_PLOS.et" {
  Launcher2 {
   coords 128.297 2.146 128.61
   angleY -92.347
@@ -35,7 +35,7 @@ $grp GenericEntity : "{8D2EE2208265FD4A}Prefabs/Weapons/Launchers/BGONE_Launcher
   angleY -92.347
  }
 }
-$grp GenericEntity : "{A05613F5CDB2E3CD}Prefabs/Weapons/Launchers/BGONE_Launcher_VIS.et" {
+$grp GenericEntity : "{82C0AFB409A3AE0B}Prefabs/Weapons/Launchers/BGONE_Launcher_VIS.et" {
  Launcher3 {
   components {
    WeaponComponent "{CFBAA4B706BA66E8}" {
@@ -91,6 +91,6 @@ $grp Vehicle : "{C012BB3488BEA0C2}Prefabs/Vehicles/Wheeled/BTR70/BTR70.et" {
   coords 6.114 1 1500
  }
 }
-Projectile : "{E28D3186FCB79063}Prefabs/Weapons/Ammo/BGONE_Ammo_Missile_VIS_TOP.et" {
+Projectile : "{A5C5EDACAA02EFA5}Prefabs/Weapons/Ammo/BGONE_Ammo_Missile_VIS_TOP.et" {
  coords 128.471 2.018 129.348
 }

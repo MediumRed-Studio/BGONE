@@ -7,6 +7,6 @@ $grp Tank : "{1DC01AAACFFA8B63}Prefabs/Vehicles/Tracked/BMP1/BMP1_base.et" {
   coords 124.671 1 130.135
  }
 }
-GenericEntity : "{5F7AE6931FD9801F}Prefabs/Weapons/Launchers/BGONE_Launcher_SACLOS.et" {
+GenericEntity : "{6DEF77B8CDF7528D}Prefabs/Weapons/Launchers/BGONE_Launcher_SACLOS.et" {
  coords 127.323 1 131.456
 }

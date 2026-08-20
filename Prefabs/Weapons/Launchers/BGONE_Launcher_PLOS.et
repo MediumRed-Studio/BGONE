@@ -5,7 +5,7 @@ GenericEntity : "{37F022D0CDC84C11}Prefabs/Weapons/Launchers/M72/Launcher_M72A3_
    Attributes SCR_ItemAttributeCollection "{51F080D5C64F12C5}" {
     ItemDisplayName WeaponUIInfo "{5222CB047B845168}" {
      Name "BGONE - PLOS"
-     Description "#AR-Example of PLOS launcher"
+     Description "Example of PLOS launcher"
     }
    }
   }

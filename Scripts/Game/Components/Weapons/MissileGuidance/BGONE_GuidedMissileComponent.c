@@ -1,0 +1,264 @@
+[ComponentEditorProps(category: "GameScripted/Weapons/BGONE", description: "Guided missile projectile flight simulator and warhead controller")]
+class BGONE_GuidedMissileComponentClass : ScriptGameComponentClass
+{
+};
+
+class BGONE_GuidedMissileComponent : ScriptComponent
+{
+	[Attribute("", UIWidgets.Object, desc: "Script Responsible For Updating The Target During Flight - Also Handles Proximity Detonation", category: "BGONE")]
+	protected ref BGONE_SeekerType_Base m_eSeekerTypeComponent;
+	
+	[Attribute("", UIWidgets.Object, desc: "Scripts Responsible For Adjusting The Attack Mode Of The Missile", category: "BGONE")]
+	protected ref array<ref BGONE_AttackProfile_Base> m_eAttackProfileComponents;
+	
+	[Attribute("", UIWidgets.Object, desc: "Script Responsible For Physically Moving The Missile", category: "BGONE")]
+	protected ref BGONE_MissileEngine_Base m_eMissileEngineComponent;
+	
+	protected int m_iArmingDistanceIndex = 0;
+	protected int m_eAttackProfileComponentIndex = 0;
+	protected Projectile m_eOwner;
+	protected float m_fFlightTime;
+	protected bool m_bGuidanceActive = false;
+	protected ref BGONE_TargetData m_eCurrentTargetData;
+	protected RplComponent m_RplComponent;
+	BGONE_GuidedMissileLauncherComponent launcherComp;
+	protected vector m_vLastTargetPosition = Vector(0,0,0);
+	
+	protected float m_fSaclosFixNextUpdateTime = 0;
+	protected float m_fSaclosFixUpdateInterval = 50;
+	
+	protected float m_fSyncPosNextUpdateTime = 0;
+	protected float m_fSyncPosUpdateInterval = 50;
+	
+	protected bool m_bDebugEnabled = false;
+	protected ref array<ref Shape> m_aDbgCollisionShapes;
+	protected vector m_vPreviousTargetPos;
+	
+	override void EOnInit(IEntity owner)
+	{
+		m_eOwner = Projectile.Cast(owner);
+		if(m_eOwner)
+			m_RplComponent = RplComponent.Cast(m_eOwner.FindComponent(RplComponent));
+		
+		m_aDbgCollisionShapes = new array<ref Shape>;
+	}
+	
+	protected void DeleteMissile(IEntity owner)
+	{
+		if(!owner)
+			return;
+			
+		RplComponent rpl = RplComponent.Cast(owner.FindComponent(RplComponent));
+		if(rpl)
+			rpl.DeleteRplEntity(owner, false);
+		else
+			delete owner;
+	}
+	
+	void SetAttackAndFireModes(int attackModeIndex, int armingDistanceIndex)
+	{
+		m_eAttackProfileComponentIndex = attackModeIndex;
+		m_iArmingDistanceIndex = armingDistanceIndex;
+	}
+	
+	array<ref Shape> onLaunched(BGONE_TargetData targetData, BGONE_GuidedMissileLauncherComponent launcher)
+	{
+		launcherComp = launcher;
+		m_eCurrentTargetData = targetData;
+		if(!m_eCurrentTargetData)
+			return m_aDbgCollisionShapes;
+			
+		SetAttackAndFireModes(m_eCurrentTargetData.attackProfileIndex, m_eCurrentTargetData.armingDistancesIndex);
+		
+		if(m_eSeekerTypeComponent)
+			m_eSeekerTypeComponent.InitSeeker(m_eOwner, m_eCurrentTargetData);
+			
+		if(m_eAttackProfileComponents && m_eAttackProfileComponents.IsIndexValid(m_eCurrentTargetData.attackProfileIndex))
+		{
+			m_eAttackProfileComponents[m_eCurrentTargetData.attackProfileIndex].InitAttackMode(m_eOwner, m_eCurrentTargetData);
+		}
+		
+		m_fFlightTime = 0;
+		m_bGuidanceActive = true;
+		
+		return m_aDbgCollisionShapes;
+	}
+	
+	override void EOnSimulate(IEntity owner, float timeSlice)
+	{
+		if(!m_RplComponent || m_RplComponent.Role() != RplRole.Authority)
+			return;
+		
+		if(!m_bGuidanceActive || !m_eCurrentTargetData)
+			return;
+		
+		m_fFlightTime += timeSlice;
+
+		// Process Seeker
+		if(m_eSeekerTypeComponent)
+			m_eCurrentTargetData = m_eSeekerTypeComponent.ProcessFrame(m_eCurrentTargetData, m_fFlightTime);
+		
+		// SACLOS Fix
+		if(m_eSeekerTypeComponent && m_eSeekerTypeComponent.Type() == BGONE_SeekerType_SACLOS)
+		{
+			if(GetGame().GetWorld().GetWorldTime() > m_fSaclosFixNextUpdateTime)
+			{
+				m_fSaclosFixNextUpdateTime = GetGame().GetWorld().GetWorldTime() + m_fSaclosFixUpdateInterval;
+				if(launcherComp)
+					launcherComp.SaclosFix();
+			}
+		}
+		
+		// Target Position tracking
+		if(m_eCurrentTargetData.targetPosition != Vector(0,0,0))
+			m_vLastTargetPosition = m_eCurrentTargetData.targetPosition;
+		else if(m_vLastTargetPosition != Vector(0,0,0))
+			m_eCurrentTargetData.targetPosition = m_vLastTargetPosition;
+		
+		// Detonation handling
+		if(m_eCurrentTargetData.detonated > 0)
+		{
+			m_bGuidanceActive = false;
+			bool down = (m_eCurrentTargetData.detonated == 2);
+			
+			vector vel = vector.Zero;
+			if(m_eOwner && m_eOwner.GetPhysics())
+				vel = m_eOwner.GetPhysics().GetVelocity();
+				
+			vector explodePos = m_eOwner.GetOrigin();
+			if(vel.Length() > 0.01)
+				explodePos = explodePos + vel.Normalized() * 1.5;
+				
+			m_eOwner.SetOrigin(explodePos);
+			if(down)
+			{
+				vector angles = m_eOwner.GetYawPitchRoll();
+				angles[1] = -90;
+				m_eOwner.SetYawPitchRoll(angles);
+			}
+			
+			ExplodeWrapper();
+			Rpc(RpcDo_Explode, explodePos, down);
+			return;
+		}
+		
+		// Process Attack Profile
+		if(m_eAttackProfileComponents && m_eAttackProfileComponents.IsIndexValid(m_eCurrentTargetData.attackProfileIndex))
+		{
+			m_eCurrentTargetData = m_eAttackProfileComponents[m_eCurrentTargetData.attackProfileIndex].ProcessFrame(m_eCurrentTargetData, m_fFlightTime);
+		}
+		
+		// Process Missile Engine
+		if(m_eMissileEngineComponent)
+		{
+			float thrustDelay = m_eMissileEngineComponent.GetThrustDelay();
+			if(m_fFlightTime >= thrustDelay)
+				m_eCurrentTargetData.detonated = m_eMissileEngineComponent.ProcessFrame(m_eOwner, m_eCurrentTargetData.targetPosition, m_fFlightTime, timeSlice);
+		}
+		
+		// Periodic network transform synchronization
+		if(GetGame().GetWorld().GetWorldTime() > m_fSyncPosNextUpdateTime)
+		{
+			m_fSyncPosNextUpdateTime = GetGame().GetWorld().GetWorldTime() + m_fSyncPosUpdateInterval;
+			if(m_eOwner && m_eOwner.GetPhysics())
+			{
+				vector vel = m_eOwner.GetPhysics().GetVelocity();
+				vector angles = vector.Zero;
+				if(vel.Length() > 0.01)
+					angles = vel.VectorToAngles();
+				Rpc(RpcDo_UpdatePosVelAng, m_eOwner.GetOrigin(), vel, angles);
+			}
+		}
+	}
+	
+	[RplRpc(RplChannel.Unreliable, RplRcver.Broadcast)]
+	void RpcDo_UpdatePosVelAng(vector position, vector velocity, vector angles)
+	{
+		if(!m_eOwner)
+			return;
+			
+		m_eOwner.SetYawPitchRoll(angles);
+		m_eOwner.SetOrigin(position);
+		if(m_eOwner.GetPhysics())
+			m_eOwner.GetPhysics().SetVelocity(velocity);
+	}
+
+	void UpdateTurretAim(vector aimDir, vector aimPos)
+	{
+		Rpc(RpcDo_UpdateAimingDir, aimDir, aimPos);
+	}
+	
+	[RplRpc(RplChannel.Unreliable, RplRcver.Server)]
+	void RpcDo_UpdateAimingDir(vector aimDir, vector aimPos)
+	{
+		BGONE_SeekerType_SACLOS seeker = BGONE_SeekerType_SACLOS.Cast(m_eSeekerTypeComponent);
+		if(!seeker) 
+			return;
+		
+		seeker.UpdateAimingDirServer(aimDir, aimPos);
+	}
+	
+	[RplRpc(RplChannel.Reliable, RplRcver.Broadcast)]
+	void RpcDo_Explode(vector pos, bool down)
+	{
+		if(!m_eOwner)
+			return;
+			
+		m_eOwner.SetOrigin(pos);
+		if(down)
+		{
+			vector angles = m_eOwner.GetYawPitchRoll();
+			angles[1] = -90;
+			m_eOwner.SetYawPitchRoll(angles);
+		}
+		
+		ExplodeWrapper();
+	}
+	
+	protected void ExplodeWrapper()
+	{
+		if(!m_eOwner)
+			return;
+
+		BaseTriggerComponent triggerComponent = BaseTriggerComponent.Cast(m_eOwner.FindComponent(BaseTriggerComponent));
+		if (!triggerComponent)
+			return;
+		
+		m_eOwner.Update();
+		triggerComponent.SetLive();
+		
+		Instigator instigator;
+		if(m_eCurrentTargetData && m_eCurrentTargetData.GetShooterEntity())
+		{
+			instigator = Instigator.CreateInstigator(m_eCurrentTargetData.GetShooterEntity());
+		}
+		
+		if(instigator)
+			triggerComponent.OnUserTriggerOverrideInstigator(m_eOwner, instigator);
+		else
+			triggerComponent.OnUserTrigger(m_eOwner);
+			
+		if(m_RplComponent && m_RplComponent.Role() == RplRole.Authority)
+		{
+			GetGame().GetCallqueue().CallLater(DeleteMissile, 100, false, m_eOwner);
+		}
+	}
+	
+	BGONE_AttackProfile_Base GetActiveAttackProfile()
+	{
+		if(m_eAttackProfileComponents && m_eAttackProfileComponents.IsIndexValid(m_eAttackProfileComponentIndex))
+			return m_eAttackProfileComponents[m_eAttackProfileComponentIndex];
+		return null;
+	}
+	
+	private void Debug_DrawLineSimple(vector start, vector end, array<ref Shape> dbgShapes, int color = ARGBF(1, 1, 1, 1))
+	{
+		vector p[2];
+		p[0] = start;
+		p[1] = end;
+
+		int shapeFlags = ShapeFlags.NOOUTLINE;
+		Shape s = Shape.CreateLines(color, shapeFlags, p, 2);
+		dbgShapes.Insert(s);	
+	}
+};
