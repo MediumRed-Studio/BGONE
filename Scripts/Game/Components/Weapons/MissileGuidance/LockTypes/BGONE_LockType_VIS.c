@@ -16,7 +16,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	[Attribute("{BF22E0769628374D}UI/layouts/BGONE_VIS_SeekBox.layout", UIWidgets.ResourcePickerThumbnail, desc: "Layout displayed when locking onto a target", category: "BGONE")]
 	protected ResourceName m_sLockOnLayout;
 
-	[Attribute("1", UIWidgets.ComboBox, "Units launcher can lock onto", "", ParamEnumArray.FromEnum(EEditableEntityType) )]
+	[Attribute("0", UIWidgets.ComboBox, "Units launcher can lock onto (empty = ALL)", "", ParamEnumArray.FromEnum(EEditableEntityType) )]
 	protected ref array<EEditableEntityType> m_eUnitTypesToLock;
 
 	protected IEntity m_eLauncher;
@@ -41,6 +41,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	
 	protected ref TraceParam m_TraceParam;
 	protected ref array<IEntity> m_aExcludeEntities;
+	protected ref array<IEntity> m_aCandidateEntities;
 	protected ref BGONE_LockingData_BASE m_LockingData;
 	
 	override void InitLockType(IEntity owner)
@@ -48,11 +49,14 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		m_eLauncher = owner;
 		m_TraceParam = new TraceParam();
 		m_aExcludeEntities = new array<IEntity>();
+		m_aCandidateEntities = new array<IEntity>();
 		m_LockingData = new BGONE_LockingData_BASE();
 	}
 
 	override void StartLock()
 	{
+		super.StartLock();
+		
 		if(!m_wDisplay && !m_sLockOnLayout.IsEmpty())
 		{
 			ArmaReforgerScripted game = GetGame();
@@ -82,6 +86,8 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 
 	override void StopLock()
 	{
+		super.StopLock();
+		
 		m_fCurrentLockProgress = 0;
 		m_fCurrentLockDuration = 0;
 		m_fCurrentLockLossDuration = 0;
@@ -104,6 +110,9 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 
 	override void UpdateLock(float timeSlice)
 	{
+		if(!m_bIsLocking)
+			return;
+			
 		if(!m_wDisplay)
 			StartLock();
 			
@@ -138,6 +147,8 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 			m_LockingData.lockingProgress = m_fCurrentLockProgress * 100.0;
 			m_LockingData.targetData = m_eTargetData;
 			
+			PlayLockOnAudio(m_fCurrentLockProgress);
+			
 			if(m_fCurrentLockProgress >= 1.0)
 			{
 				if(!m_bLockEventFired)
@@ -156,6 +167,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		}
 		else
 		{
+			TerminateLockOnAudio();
 			if(m_bLockEventFired || m_fCurrentLockProgress > 0)
 			{
 				m_fCurrentLockLossDuration += timeSlice;
@@ -169,7 +181,6 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 					m_fCurrentLockLossDuration = 0;
 					m_bLockEventFired = false;
 					m_eTargetData = null;
-					TerminateLockOnAudio();
 				}
 			}
 			else
@@ -204,7 +215,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		if(m_eTargetData)
 			currentLockedEnt = m_eTargetData.GetTargetEntity();
 
-		// If current target is still in cone and has LOS, check it
+		// If current target is still in cone and has LOS, verify it
 		if(currentLockedEnt)
 		{
 			vector currentAimPoint = GetAimPoint(currentLockedEnt);
@@ -217,8 +228,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 				{
 					if(TraceLOS(aimPos, currentAimPoint, currentLockedEnt))
 					{
-						// Retain lock if player hasn't aimed at a different target
-						// (will be overridden below if center ray directly hits another target)
+						// Target is valid and tracked
 					}
 				}
 			}
@@ -263,14 +273,82 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 			}
 		}
 
+		// Step 3: Spatial Broadphase Query Fallback
+		m_aCandidateEntities.Clear();
+		GetGame().GetWorld().QueryEntitiesBySphere(aimPos, m_iMaxLockOnRange, FilterCandidateEntity, null, EQueryEntitiesFlags.DYNAMIC);
+		
+		IEntity bestTarget = null;
+		float bestScore = -1.0;
+		ref array<IEntity> processedRoots = new array<IEntity>();
+		
+		foreach(IEntity candidate : m_aCandidateEntities)
+		{
+			if(!candidate)
+				continue;
+				
+			IEntity root = candidate.GetRootParent();
+			if(!root)
+				root = candidate;
+				
+			if(root == m_eLauncher || root == m_eLauncher.GetRootParent() || processedRoots.Contains(root))
+				continue;
+				
+			processedRoots.Insert(root);
+				
+			vector candPos = GetAimPoint(root);
+			vector toCand = candPos - aimPos;
+			float candDist = toCand.Length();
+			if(candDist < m_iMinLockOnRange || candDist > m_iMaxLockOnRange)
+				continue;
+				
+			float dot = Math.Clamp(vector.Dot(aimDir, toCand.Normalized()), -1.0, 1.0);
+			if(dot < 0.90) // Within ~25 degrees of center
+				continue;
+				
+			if(CheckUnitType(root))
+			{
+				if(TraceLOS(aimPos, candPos, root))
+				{
+					float score = dot;
+					if(root == currentLockedEnt)
+						score += 0.02;
+						
+					if(score > bestScore)
+					{
+						bestScore = score;
+						bestTarget = root;
+					}
+				}
+			}
+		}
+		
+		if(bestTarget)
+		{
+			if(currentLockedEnt == bestTarget)
+				return m_eTargetData;
+				
+			BGONE_TargetData data = new BGONE_TargetData();
+			RplComponent rpl = RplComponent.Cast(bestTarget.FindComponent(RplComponent));
+			if(rpl)
+				data.targetRplId = rpl.Id();
+			return data;
+		}
+
 		return null;
+	}
+
+	protected bool FilterCandidateEntity(IEntity ent)
+	{
+		if(ent && ent != m_eLauncher)
+			m_aCandidateEntities.Insert(ent);
+		return true;
 	}
 
 	protected IEntity TraceRay(vector from, vector to)
 	{
 		m_TraceParam.Start = from;
 		m_TraceParam.End = to;
-		m_TraceParam.Flags = TraceFlags.WORLD | TraceFlags.ENTS;
+		m_TraceParam.Flags = TraceFlags.ANY_CONTACT | TraceFlags.WORLD | TraceFlags.ENTS;
 		m_aExcludeEntities.Clear();
 		m_aExcludeEntities.Insert(m_eLauncher);
 		if(m_eLauncher.GetRootParent())
@@ -305,6 +383,21 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		if(!root)
 			root = ent;
 			
+		if(root == m_eLauncher || root == m_eLauncher.GetRootParent())
+			return false;
+			
+		if(Vehicle.Cast(root) || Vehicle.Cast(ent))
+			return true;
+			
+		if(SCR_ChimeraCharacter.Cast(root) || SCR_ChimeraCharacter.Cast(ent) || ChimeraCharacter.Cast(root) || ChimeraCharacter.Cast(ent))
+			return true;
+			
+		if(root.FindComponent(VehicleControllerComponent) || ent.FindComponent(VehicleControllerComponent))
+			return true;
+			
+		if(root.FindComponent(CharacterControllerComponent) || ent.FindComponent(CharacterControllerComponent))
+			return true;
+			
 		SCR_EditableEntityComponent editable = SCR_EditableEntityComponent.Cast(root.FindComponent(SCR_EditableEntityComponent));
 		if(!editable)
 			editable = SCR_EditableEntityComponent.Cast(ent.FindComponent(SCR_EditableEntityComponent));
@@ -312,21 +405,9 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		if(editable)
 		{
 			EEditableEntityType entityType = editable.GetEntityType();
-			if(!m_eUnitTypesToLock || m_eUnitTypesToLock.IsEmpty() || m_eUnitTypesToLock.Contains(entityType))
+			if(entityType == EEditableEntityType.VEHICLE || entityType == EEditableEntityType.CHARACTER)
 				return true;
 		}
-		
-		if(Vehicle.Cast(root) || Vehicle.Cast(ent))
-			return true;
-			
-		if(root.FindComponent(VehicleControllerComponent) || ent.FindComponent(VehicleControllerComponent))
-			return true;
-			
-		if(SCR_ChimeraCharacter.Cast(root) || SCR_ChimeraCharacter.Cast(ent))
-			return true;
-			
-		if(root.FindComponent(CharacterControllerComponent) || ent.FindComponent(CharacterControllerComponent))
-			return true;
 			
 		return false;
 	}
@@ -349,7 +430,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		
 		m_TraceParam.Start = from;
 		m_TraceParam.End = to;
-		m_TraceParam.Flags = TraceFlags.WORLD | TraceFlags.ENTS;
+		m_TraceParam.Flags = TraceFlags.ANY_CONTACT | TraceFlags.WORLD | TraceFlags.ENTS;
 		m_TraceParam.ExcludeArray = m_aExcludeEntities;
 		m_TraceParam.LayerMask = EPhysicsLayerDefs.Projectile;
 		

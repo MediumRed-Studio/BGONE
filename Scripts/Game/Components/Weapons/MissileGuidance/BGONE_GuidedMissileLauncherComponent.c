@@ -214,11 +214,9 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		 	
 		if(!m_eventHandler || (!weaponAds && !turretAds))
 		{
-			if(m_bLocking && m_eLockTypeComponent)
-			{
-				m_bLocking = false;
+			if(m_eLockTypeComponent)
 				m_eLockTypeComponent.StopLock();
-			}
+			m_bLocking = false;
 			return;
 		}
 		
@@ -226,7 +224,12 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			m_InputManager.ActivateContext("CharacterWeaponGuidedLauncher");
 		
 		if(m_eLockTypeComponent)
+		{
+			if(!m_eLockTypeComponent.IsLocking())
+				m_eLockTypeComponent.StartLock();
+				
 			m_eLockTypeComponent.UpdateLock(timeSlice);
+		}
 	}
 	
 	protected void SetLockingState(float value, EActionTrigger reason)

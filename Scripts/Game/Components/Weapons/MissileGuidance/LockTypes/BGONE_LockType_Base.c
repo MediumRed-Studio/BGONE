@@ -37,16 +37,25 @@ class BGONE_LockType_Base : ScriptAndConfig
 		return m_OnLockAcquired;
 	}
 
+	protected bool m_bIsLocking = false;
+
+	bool IsLocking()
+	{
+		return m_bIsLocking;
+	}
+
 	void InitLockType(IEntity owner)
 	{
 	}
 
 	void StartLock()
 	{
+		m_bIsLocking = true;
 	}
 
 	void StopLock()
 	{
+		m_bIsLocking = false;
 	}
 
 	void UpdateLock(float timeSlice)
