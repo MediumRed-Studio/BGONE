@@ -126,7 +126,19 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		if(currentTime > m_fNextScanTime)
 		{
 			m_fNextScanTime = currentTime + m_fScanInterval;
-			m_eTargetData = ScanForTarget();
+			BGONE_TargetData scannedData = ScanForTarget();
+			
+			if(scannedData && m_eTargetData)
+			{
+				if(scannedData.targetRplId != m_eTargetData.targetRplId)
+				{
+					m_fCurrentLockProgress = 0;
+					m_fCurrentLockDuration = 0;
+					m_bLockEventFired = false;
+					TerminateLockOnAudio();
+				}
+			}
+			m_eTargetData = scannedData;
 		}
 		
 		if(m_eTargetData && m_eTargetData.GetTargetEntity())
@@ -191,42 +203,74 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		vector aimDir, aimPos;
 		GetAimDirAndPosOfLauncher(m_eLauncher, aimDir, aimPos);
 		
-		// If tracking an existing locked target, verify line of sight first
-		if(m_eTargetData && m_eTargetData.GetTargetEntity())
+		IEntity currentLockedEnt = null;
+		if(m_eTargetData)
+			currentLockedEnt = m_eTargetData.GetTargetEntity();
+
+		// Step 1: Direct Center-Aim Raycast (crosshair point check)
+		m_TraceParam.Start = aimPos;
+		m_TraceParam.End = aimPos + (aimDir * (float)m_iMaxLockOnRange);
+		m_TraceParam.Flags = TraceFlags.WORLD | TraceFlags.ENTS;
+		m_aExcludeEntities.Clear();
+		m_aExcludeEntities.Insert(m_eLauncher);
+		if(m_eLauncher.GetRootParent())
+			m_aExcludeEntities.Insert(m_eLauncher.GetRootParent());
+		m_TraceParam.ExcludeArray = m_aExcludeEntities;
+		m_TraceParam.LayerMask = EPhysicsLayerDefs.Projectile;
+		
+		GetGame().GetWorld().TraceMove(m_TraceParam, null);
+		if(m_TraceParam.TraceEnt)
 		{
-			IEntity currentTarget = m_eTargetData.GetTargetEntity();
-			vector targetPos = currentTarget.GetOrigin();
-			if(currentTarget.GetPhysics())
-				targetPos = currentTarget.CoordToParent(currentTarget.GetPhysics().GetCenterOfMass());
+			IEntity hitRoot = m_TraceParam.TraceEnt.GetRootParent();
+			if(!hitRoot)
+				hitRoot = m_TraceParam.TraceEnt;
 				
-			vector toTarget = targetPos - aimPos;
-			float dist = toTarget.Length();
-			if(dist >= m_iMinLockOnRange && dist <= m_iMaxLockOnRange)
+			if(hitRoot != m_eLauncher && hitRoot != m_eLauncher.GetRootParent() && CheckUnitType(hitRoot))
 			{
-				float dot = Math.Clamp(vector.Dot(aimDir, toTarget.Normalized()), -1.0, 1.0);
-				if(dot >= 0.85) // ~30 degree cone
+				vector hitPos = hitRoot.GetOrigin();
+				if(hitRoot.GetPhysics())
+					hitPos = hitRoot.CoordToParent(hitRoot.GetPhysics().GetCenterOfMass());
+					
+				float hitDist = vector.Distance(aimPos, hitPos);
+				if(hitDist >= m_iMinLockOnRange && hitDist <= m_iMaxLockOnRange)
 				{
-					if(TraceLOS(aimPos, targetPos, currentTarget))
+					if(currentLockedEnt == hitRoot)
 						return m_eTargetData;
+						
+					BGONE_TargetData directData = new BGONE_TargetData();
+					RplComponent directRpl = RplComponent.Cast(hitRoot.FindComponent(RplComponent));
+					if(directRpl)
+						directData.targetRplId = directRpl.Id();
+					return directData;
 				}
 			}
 		}
 
-		// Broadphase: Spatial sphere query for candidate targets
+		// Step 2: Broadphase Angular Scan - pick the target closest to crosshair center
 		m_aCandidateEntities.Clear();
 		GetGame().GetWorld().QueryEntitiesBySphere(aimPos, m_iMaxLockOnRange, FilterCandidateEntity, null, EQueryEntitiesFlags.DYNAMIC);
 		
 		IEntity bestTarget = null;
 		float bestScore = -1.0;
+		ref array<IEntity> processedRoots = new array<IEntity>();
 		
 		foreach(IEntity candidate : m_aCandidateEntities)
 		{
-			if(!candidate || candidate == m_eLauncher || candidate == m_eLauncher.GetRootParent())
+			if(!candidate)
 				continue;
 				
-			vector candPos = candidate.GetOrigin();
-			if(candidate.GetPhysics())
-				candPos = candidate.CoordToParent(candidate.GetPhysics().GetCenterOfMass());
+			IEntity root = candidate.GetRootParent();
+			if(!root)
+				root = candidate;
+				
+			if(root == m_eLauncher || root == m_eLauncher.GetRootParent() || processedRoots.Contains(root))
+				continue;
+				
+			processedRoots.Insert(root);
+				
+			vector candPos = root.GetOrigin();
+			if(root.GetPhysics())
+				candPos = root.CoordToParent(root.GetPhysics().GetCenterOfMass());
 				
 			vector toCand = candPos - aimPos;
 			float candDist = toCand.Length();
@@ -234,17 +278,21 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 				continue;
 				
 			float dot = Math.Clamp(vector.Dot(aimDir, toCand.Normalized()), -1.0, 1.0);
-			if(dot < 0.85) // Within ~30 degrees of center
+			if(dot < 0.90) // Must be within ~25 degrees of center
 				continue;
 				
-			if(CheckUnitType(candidate))
+			if(CheckUnitType(root))
 			{
-				if(TraceLOS(aimPos, candPos, candidate))
+				if(TraceLOS(aimPos, candPos, root))
 				{
-					if(dot > bestScore)
+					float score = dot;
+					if(root == currentLockedEnt)
+						score += 0.02; // Small hysteresis bonus
+						
+					if(score > bestScore)
 					{
-						bestScore = dot;
-						bestTarget = candidate;
+						bestScore = score;
+						bestTarget = root;
 					}
 				}
 			}
@@ -252,6 +300,9 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		
 		if(bestTarget)
 		{
+			if(currentLockedEnt == bestTarget)
+				return m_eTargetData;
+				
 			BGONE_TargetData data = new BGONE_TargetData();
 			RplComponent rpl = RplComponent.Cast(bestTarget.FindComponent(RplComponent));
 			if(rpl)
