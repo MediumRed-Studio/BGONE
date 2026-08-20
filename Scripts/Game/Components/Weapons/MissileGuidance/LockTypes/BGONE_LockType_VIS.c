@@ -137,9 +137,9 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 				if(!m_cTargetDataVIS)
 					m_cTargetDataVIS = new BGONE_TargetData();
 					
-				RplId rplId = Replication.FindId(lockingTarget);
+				RplId rplId = Replication.FindItemId(lockingTarget);
 				if(!rplId.IsValid() && lockingTarget.GetRootParent())
-					rplId = Replication.FindId(lockingTarget.GetRootParent());
+					rplId = Replication.FindItemId(lockingTarget.GetRootParent());
 					
 				m_cTargetDataVIS.targetRplId = rplId;
 				m_cTargetDataVIS.targetPosition = m_eLockingData.lockingPos;
@@ -158,9 +158,9 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 				m_eLockingData.lockingPos = GetAimPoint(lockingTarget);
 				m_cTargetDataVIS = new BGONE_TargetData();
 				
-				RplId rplId = Replication.FindId(lockingTarget);
+				RplId rplId = Replication.FindItemId(lockingTarget);
 				if(!rplId.IsValid() && lockingTarget.GetRootParent())
-					rplId = Replication.FindId(lockingTarget.GetRootParent());
+					rplId = Replication.FindItemId(lockingTarget.GetRootParent());
 					
 				m_cTargetDataVIS.targetRplId = rplId;
 				m_cTargetDataVIS.targetPosition = m_eLockingData.lockingPos;

@@ -108,10 +108,6 @@ class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 		m_fTargetLastSeenTime = flightTime;
 
 		// Lead prediction
-		vector targetVel = Vector(0,0,0);
-		if(target.GetPhysics())
-			targetVel = target.GetPhysics().GetVelocity();
-
 		float projSpeed = vel.Length();
 		if(projSpeed < 10.0)
 			projSpeed = 150.0; // Fallback speed
