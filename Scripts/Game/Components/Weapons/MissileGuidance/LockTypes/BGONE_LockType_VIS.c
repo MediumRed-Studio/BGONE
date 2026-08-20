@@ -237,7 +237,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 			if(Math.Acos(dot) > 0.45) // ~26 degree cone
 				return null;
 				
-			float relAngle = toTarget.ToYaw();
+			float relAngle = toTarget.ToYaw() * Math.DEG2RAD;
 			
 			for(float xOff = -2.5; xOff <= 2.5; xOff += 0.5)
 			{
@@ -476,10 +476,20 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		    }
 		}
 
-		boundsMin[0] = minX;
-		boundsMin[1] = minY;
-		boundsMax[0] = maxX;
-		boundsMax[1] = maxY;
+		if(minX > maxX || minY > maxY)
+		{
+			boundsMin[0] = 0;
+			boundsMin[1] = 0;
+			boundsMax[0] = workspace.DPIUnscale(workspace.GetWidth());
+			boundsMax[1] = workspace.DPIUnscale(workspace.GetHeight());
+		}
+		else
+		{
+			boundsMin[0] = minX;
+			boundsMin[1] = minY;
+			boundsMax[0] = maxX;
+			boundsMax[1] = maxY;
+		}
 	}
 
 	override void PlayLockOnAudio(float currentLockProgress)

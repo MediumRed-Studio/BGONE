@@ -119,58 +119,60 @@ class BGONE_LockType_Base : ScriptAndConfig
 		if(!launcher)
 			return;
 
-		// Check PIP Sight Camera first (Upstream parity)
 		SCR_2DPIPSightsComponent pipSight = ArmaReforgerScripted.GetCurrentPIPSights();
+		Turret turret = Turret.Cast(launcher.GetParent());
+		
+		vector mat[4];
 		if(pipSight)
-		{
+		{ 
 			SCR_PIPCamera pipCam = pipSight.GetPIPCamera();
 			if(pipCam)
 			{
-				vector pipMat[4];
-				pipCam.GetWorldCameraTransform(pipMat);
-				aimDir = pipMat[2];
-				aimPos = pipMat[3];
+				pipCam.GetWorldCameraTransform(mat);
+				aimDir = mat[2];
+				aimPos = mat[3];
 				return;
 			}
 		}
-
-		Turret turret = Turret.Cast(launcher.GetParent());
+		
 		if(turret)
 		{
-			TurretComponent turretComp = TurretComponent.Cast(turret.FindComponent(TurretComponent));
-			if(turretComp)
+			TurretControllerComponent controller = TurretControllerComponent.Cast(turret.FindComponent(TurretControllerComponent));
+			if(controller)
 			{
-				aimDir = turretComp.GetAimingDirectionWorld();
-				aimPos = turret.GetOrigin();
-				return;
+				BaseCompartmentSlot slot = controller.GetCompartmentSlot();
+				if(slot)
+				{
+					SCR_ChimeraCharacter shooter = SCR_ChimeraCharacter.Cast(slot.GetOccupant());
+					if(shooter && shooter.GetWorld())
+					{
+						shooter.GetWorld().GetCurrentCamera(mat);
+						aimDir = mat[2];
+						aimPos = mat[3];
+						return;
+					}
+				}
 			}
 		}
-
+		
+		SCR_ChimeraCharacter shooter = SCR_ChimeraCharacter.Cast(launcher.GetRootParent());
+		if(shooter && shooter.GetWorld())
+		{
+			shooter.GetWorld().GetCurrentCamera(mat);
+			aimDir = mat[2];
+			aimPos = mat[3];
+			return;
+		}
+		
 		ArmaReforgerScripted game = GetGame();
 		if(game && game.GetWorld())
 		{
-			vector camMat[4];
-			game.GetWorld().GetCurrentCamera(camMat);
-			if(camMat[2] != Vector(0,0,0))
-			{
-				aimDir = camMat[2];
-				aimPos = camMat[3];
-				return;
-			}
+			game.GetWorld().GetCurrentCamera(mat);
+			aimDir = mat[2];
+			aimPos = mat[3];
+			return;
 		}
-
-		SCR_ChimeraCharacter shooter = SCR_ChimeraCharacter.Cast(launcher.GetRootParent());
-		if(shooter)
-		{
-			aimPos = shooter.EyePosition();
-			AimingComponent headAim = shooter.GetHeadAimingComponent();
-			if(headAim)
-			{
-				aimDir = headAim.GetAimingDirectionWorld();
-				return;
-			}
-		}
-
+		
 		aimPos = launcher.GetOrigin();
 		vector lmat[4];
 		launcher.GetWorldTransform(lmat);
