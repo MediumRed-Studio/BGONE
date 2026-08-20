@@ -134,17 +134,20 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 				
 				PlayLockOnAudio(m_eLockingData.lockingProgress / 100.0);
 				
-				if(m_eLockingData.lockingProgress >= 100.0 && (!m_cTargetDataVIS || m_cTargetDataVIS.targetRplId == 0))
+				if(!m_cTargetDataVIS)
+					m_cTargetDataVIS = new BGONE_TargetData();
+					
+				RplId rplId = Replication.FindId(lockingTarget);
+				if(!rplId.IsValid() && lockingTarget.GetRootParent())
+					rplId = Replication.FindId(lockingTarget.GetRootParent());
+					
+				m_cTargetDataVIS.targetRplId = rplId;
+				m_cTargetDataVIS.targetPosition = m_eLockingData.lockingPos;
+				m_eLockingData.targetData = m_cTargetDataVIS;
+				
+				if(m_eLockingData.lockingProgress >= 100.0)
 				{
-					RplComponent rpl = RplComponent.Cast(lockingTarget.FindComponent(RplComponent));
-					if(!m_cTargetDataVIS)
-						m_cTargetDataVIS = new BGONE_TargetData();
-						
-					if(rpl)
-						m_cTargetDataVIS.targetRplId = rpl.Id();
-						
-					m_eLockingData.targetData = m_cTargetDataVIS;
-					LockAquired(m_eLockingData);
+					LockAcquired(m_eLockingData);
 				}
 			}
 			
@@ -154,8 +157,15 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 				m_eLockingData.lockingProgress = 0;
 				m_eLockingData.lockingPos = GetAimPoint(lockingTarget);
 				m_cTargetDataVIS = new BGONE_TargetData();
+				
+				RplId rplId = Replication.FindId(lockingTarget);
+				if(!rplId.IsValid() && lockingTarget.GetRootParent())
+					rplId = Replication.FindId(lockingTarget.GetRootParent());
+					
+				m_cTargetDataVIS.targetRplId = rplId;
+				m_cTargetDataVIS.targetPosition = m_eLockingData.lockingPos;
 				m_eLockingData.targetData = m_cTargetDataVIS;
-				LockStartAquire(m_eLockingData);
+				LockStartAcquire(m_eLockingData);
 			}
 		}
 		
@@ -390,16 +400,6 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 			return true;
 		}
 		
-		PerceivableComponent perceivable = PerceivableComponent.Cast(root.FindComponent(PerceivableComponent));
-		if(!perceivable)
-			perceivable = PerceivableComponent.Cast(ent.FindComponent(PerceivableComponent));
-			
-		if(perceivable)
-		{
-			lastTarget = root;
-			return true;
-		}
-		
 		return false;
 	}
 
@@ -592,8 +592,8 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 
 	override BGONE_TargetData GetCurrentTargetData()
 	{
-		if(m_eLockingData && m_eLockingData.lockingProgress >= 100.0)
-			return m_cTargetDataVIS;
-		return null;
+		if(!m_bKeepLockAfterFired)
+			GetGame().GetCallqueue().CallLater(StopLock, 10, false);
+		return m_cTargetDataVIS;
 	}
 }

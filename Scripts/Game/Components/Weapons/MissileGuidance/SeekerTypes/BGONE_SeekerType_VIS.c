@@ -43,26 +43,34 @@ class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 		}
 			
 		IEntity target = targetData.GetTargetEntity();
-		if(!target)
+		vector centerPos = targetData.targetPosition;
+		vector targetVel = Vector(0,0,0);
+		
+		if(target)
+		{
+			if(GetDistanceFromLaunch(targetData) >= m_iArmingDistance)
+			{
+				// Check proximity detonation
+				if(vector.Distance(target.GetOrigin(), m_eProjectile.GetOrigin()) < 3.0)
+				{
+					targetData.detonated = EBGONE_DetonationState.IMPACT;
+					return targetData;
+				}
+			}
+
+			vector centerOfMass = Vector(0,0,0);
+			if(target.GetPhysics())
+			{
+				centerOfMass = target.GetPhysics().GetCenterOfMass();
+				targetVel = target.GetPhysics().GetVelocity();
+			}
+			centerPos = target.CoordToParent(centerOfMass);
+		}
+		else if(centerPos == Vector(0,0,0))
 		{
 			return targetData;
 		}
 
-		if(GetDistanceFromLaunch(targetData) >= m_iArmingDistance)
-		{
-			// Check proximity detonation
-			if(vector.Distance(target.GetOrigin(), m_eProjectile.GetOrigin()) < 3.0)
-			{
-				targetData.detonated = EBGONE_DetonationState.IMPACT;
-				return targetData;
-			}
-		}
-
-		vector centerOfMass = Vector(0,0,0);
-		if(target.GetPhysics())
-			centerOfMass = target.GetPhysics().GetCenterOfMass();
-			
-		vector centerPos = target.CoordToParent(centerOfMass);
 		vector projPos = m_eProjectile.GetOrigin();
 		vector toTarget = centerPos - projPos;
 		float distToTarget = toTarget.Length();

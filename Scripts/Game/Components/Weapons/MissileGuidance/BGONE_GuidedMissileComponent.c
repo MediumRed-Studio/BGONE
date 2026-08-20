@@ -83,7 +83,7 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	
 	override void EOnSimulate(IEntity owner, float timeSlice)
 	{
-		if(!m_RplComponent || m_RplComponent.Role() != RplRole.Authority)
+		if(m_RplComponent && m_RplComponent.Role() == RplRole.Proxy)
 			return;
 		
 		if(!m_bGuidanceActive || !m_eCurrentTargetData)
@@ -141,9 +141,7 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		// Process Missile Engine
 		if(m_eMissileEngineComponent)
 		{
-			float thrustDelay = m_eMissileEngineComponent.GetThrustDelay();
-			if(m_fFlightTime >= thrustDelay)
-				m_eCurrentTargetData.detonated = m_eMissileEngineComponent.ProcessFrame(m_eOwner, m_eCurrentTargetData.targetPosition, m_fFlightTime, timeSlice);
+			m_eCurrentTargetData.detonated = m_eMissileEngineComponent.ProcessFrame(m_eOwner, m_eCurrentTargetData.targetPosition, m_fFlightTime, timeSlice);
 		}
 		
 		// Periodic network transform synchronization (20 Hz)

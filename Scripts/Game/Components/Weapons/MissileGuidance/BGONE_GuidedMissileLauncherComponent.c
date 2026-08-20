@@ -96,6 +96,8 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		if(!m_eCurrentPlayer)
 			return;
 		
+		RegisterListeners();
+		
 		RplComponent playerRpl = m_eCurrentPlayer.GetRplComponent();
 		if(playerRpl && m_RplComponent)
 		{
@@ -196,7 +198,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	
 	override void EOnFixedFrame(IEntity owner, float timeSlice)
 	{
-		if(!m_RplComponent || !m_RplComponent.IsOwner() || !m_eCurrentPlayer)
+		if((m_RplComponent && m_RplComponent.IsRemoteProxy()) || !m_eCurrentPlayer)
 			return;
 		
 		bool turretAds = false;
@@ -272,7 +274,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	
 	protected void OnLaunch(int playerID, BaseWeaponComponent weapon, IEntity entity)
 	{	
-		if(!m_RplComponent || m_RplComponent.IsRemoteProxy())
+		if(m_RplComponent && m_RplComponent.IsRemoteProxy())
 			return;
 		
 		m_eLastMissile = BGONE_GuidedMissileComponent.Cast(entity.FindComponent(BGONE_GuidedMissileComponent));
@@ -286,14 +288,14 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		}
 		else
 		{
-			if(!m_eLockTypeComponent)
-				return;
+			if(m_eLockTypeComponent)
+				targetData = m_eLockTypeComponent.GetCurrentTargetData();
 				
-			targetData = m_eLockTypeComponent.GetCurrentTargetData();
 			if(!targetData)
-				return;
+				targetData = new BGONE_TargetData();
 			
 			targetData.launchPos = entity.GetOrigin();
+			targetData.launchDir = entity.GetYawPitchRoll().AnglesToVector();
 			targetData.attackProfileIndex = m_iCurrentAttackModeIndex;
 			targetData.armingDistancesIndex = m_iCurrentArmingDistanceIndex;
 			
@@ -301,7 +303,11 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 				targetData.turretRplId = m_eTurret.GetRplComponent().Id();
 		}
 		
+		m_eLastMissile.onLaunched(targetData, this);
 		Rpc(RpcAsk_SendTargetData, targetData);
+		
+		m_eLastTargetData = null;
+		m_eLastMissile = null;
 	}
 	
 	void SaclosFix()

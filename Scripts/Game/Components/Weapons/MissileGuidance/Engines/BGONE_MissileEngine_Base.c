@@ -1,16 +1,16 @@
 [BaseContainerProps()]
 class BGONE_MissileEngine_Base : ScriptAndConfig
 {
-	[Attribute("1.0", UIWidgets.Slider, "Thrust Delay (Seconds) Before Engine Ignites After Launch", "0 10 0.1", category: "BGONE")]
+	[Attribute("0.2", UIWidgets.Slider, "Thrust Delay (Seconds) Before Engine Ignites After Launch", "0 10 0.1", category: "BGONE")]
 	protected float m_fThrustDelay;
 	
-	[Attribute("3.0", UIWidgets.Slider, "Thrust Duration (Seconds) While Rocket Motor Burns", "0 60 0.1", category: "BGONE")]
+	[Attribute("2.1", UIWidgets.Slider, "Thrust Duration (Seconds) While Rocket Motor Burns", "0 60 0.1", category: "BGONE")]
 	protected float m_fThrustBurnTime;
 	
 	[Attribute("50", UIWidgets.Slider, "Initial Exit Velocity (Meters per Second)", "0 500 1", category: "BGONE")]
 	protected float m_fInitialSpeed;
 	
-	[Attribute("250", UIWidgets.Slider, "Max Powered Speed (Meters per Second)", "0 1500 1", category: "BGONE")]
+	[Attribute("200", UIWidgets.Slider, "Max Powered Speed (Meters per Second)", "0 1500 1", category: "BGONE")]
 	protected float m_fMaxSpeed;
 	
 	[Attribute("30", UIWidgets.Slider, "Total Flight Lifetime Before Fuel / Battery Exhaustion", "0 120 1", category: "BGONE")]
@@ -67,6 +67,7 @@ class BGONE_MissileEngine_Base : ScriptAndConfig
 		vector angularVel = SCR_Math3D.GetFixedAxisVector(rotationError) * Math.DEG2RAD;
 		vector vel = targetDir * currentSpeed;
 		
+		projectile.SetYawPitchRoll(targetAngles);
 		phys.SetAngularVelocity(angularVel);
 		phys.SetVelocity(vel);
 		
