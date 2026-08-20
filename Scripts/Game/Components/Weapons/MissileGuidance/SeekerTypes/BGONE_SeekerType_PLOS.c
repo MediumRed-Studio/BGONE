@@ -62,7 +62,10 @@ class BGONE_SeekerType_PLOS : BGONE_SeekerType_Base
 		if(!m_eProjectile)
 			return null;
 			
-		float range = (m_fProximityDetectionRange > 0) ? m_fProximityDetectionRange : 5.0;
+		float range = m_fProximityDetectionRange;
+		if(range <= 0)
+			range = 5.0;
+			
 		vector pos = m_eProjectile.GetOrigin();
 		vector endPos = pos + (Vector(0, -1, 0) * range);
 		
