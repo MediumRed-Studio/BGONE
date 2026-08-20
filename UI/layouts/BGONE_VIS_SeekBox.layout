@@ -89,94 +89,73 @@ FrameWidgetClass {
     }
    }
   }
-  FrameWidgetClass "{606671430371A105}" {
-   Name "SeekBox"
-   Slot FrameWidgetSlot "{606671430371A104}" {
-    Anchor 0 0 0 0
-    PositionX 0
-    OffsetLeft 0
-    PositionY 0
-    OffsetTop 0
-    SizeX 392
+  ImageWidgetClass "{606671430371A114}" {
+   Name "TL"
+   Slot FrameWidgetSlot "{606671430371A106}" {
+    PositionX 8
+    OffsetLeft 8
+    PositionY 8
+    OffsetTop 8
+    SizeX 64
+    OffsetRight -72
+    SizeY 64
+    OffsetBottom -72
+   }
+   "Inherit Color" 1
+   Texture "{D8FDB3535DD87DA9}Assets/UI/BGONE_VIS_LOCK_Scanbox.edds"
+   Size 64 64
+  }
+  ImageWidgetClass "{6066714FDDAC46B9}" {
+   Name "TR"
+   Slot FrameWidgetSlot "{606671430371A106}" {
+    PositionX 328
+    OffsetLeft 328
+    PositionY 8
+    OffsetTop 8
+    SizeX 64
     OffsetRight -392
-    SizeY 224
+    SizeY 64
+    OffsetBottom -72
+   }
+   "Inherit Color" 1
+   Texture "{D8FDB3535DD87DA9}Assets/UI/BGONE_VIS_LOCK_Scanbox.edds"
+   Size 64 64
+   "Flip Horizontally" 1
+  }
+  ImageWidgetClass "{6066714FA79EED39}" {
+   Name "BL"
+   Slot FrameWidgetSlot "{606671430371A106}" {
+    PositionX 8
+    OffsetLeft 8
+    PositionY 160
+    OffsetTop 160
+    SizeX 64
+    OffsetRight -72
+    SizeY 64
     OffsetBottom -224
    }
    "Inherit Color" 1
-   {
-    ImageWidgetClass "{606671430371A114}" {
-     Name "TL"
-     Slot FrameWidgetSlot "{606671430371A106}" {
-      Anchor 0 0 0 0
-      PositionX 0
-      OffsetLeft 0
-      PositionY 0
-      OffsetTop 0
-      SizeX 64
-      OffsetRight -64
-      SizeY 64
-      OffsetBottom -64
-     }
-     "Inherit Color" 1
-     Texture "{D8FDB3535DD87DA9}Assets/UI/BGONE_VIS_LOCK_Scanbox.edds"
-     Size 64 64
-    }
-    ImageWidgetClass "{6066714FDDAC46B9}" {
-     Name "TR"
-     Slot FrameWidgetSlot "{606671430371A106}" {
-      Anchor 1 0 1 0
-      PositionX -64
-      OffsetLeft -64
-      PositionY 0
-      OffsetTop 0
-      SizeX 64
-      OffsetRight 0
-      SizeY 64
-      OffsetBottom -64
-     }
-     "Inherit Color" 1
-     Texture "{D8FDB3535DD87DA9}Assets/UI/BGONE_VIS_LOCK_Scanbox.edds"
-     Size 64 64
-     "Flip Horizontally" 1
-    }
-    ImageWidgetClass "{6066714FA79EED39}" {
-     Name "BL"
-     Slot FrameWidgetSlot "{606671430371A106}" {
-      Anchor 0 1 0 1
-      PositionX 0
-      OffsetLeft 0
-      PositionY -64
-      OffsetTop -64
-      SizeX 64
-      OffsetRight -64
-      SizeY 64
-      OffsetBottom 0
-     }
-     "Inherit Color" 1
-     Texture "{D8FDB3535DD87DA9}Assets/UI/BGONE_VIS_LOCK_Scanbox.edds"
-     Size 64 64
-     "Flip Vertically" 1
-    }
-    ImageWidgetClass "{6066714FA5067C47}" {
-     Name "BR"
-     Slot FrameWidgetSlot "{606671430371A106}" {
-      Anchor 1 1 1 1
-      PositionX -64
-      OffsetLeft -64
-      PositionY -64
-      OffsetTop -64
-      SizeX 64
-      OffsetRight 0
-      SizeY 64
-      OffsetBottom 0
-     }
-     "Inherit Color" 1
-     Texture "{D8FDB3535DD87DA9}Assets/UI/BGONE_VIS_LOCK_Scanbox.edds"
-     Size 64 64
-     "Flip Horizontally" 1
-     "Flip Vertically" 1
-    }
+   Texture "{D8FDB3535DD87DA9}Assets/UI/BGONE_VIS_LOCK_Scanbox.edds"
+   Size 64 64
+   "Flip Vertically" 1
+  }
+  ImageWidgetClass "{6066714FA5067C47}" {
+   Name "BR"
+   Slot FrameWidgetSlot "{606671430371A106}" {
+    PositionX 328
+    OffsetLeft 328
+    PositionY 160
+    OffsetTop 160
+    SizeX 64
+    OffsetRight -392
+    SizeY 64
+    OffsetBottom -224
    }
+   "Inherit Color" 1
+   Texture "{D8FDB3535DD87DA9}Assets/UI/BGONE_VIS_LOCK_Scanbox.edds"
+   Size 64 64
+   "Flip Horizontally" 1
+   "Flip Vertically" 1
   }
  }
 }
