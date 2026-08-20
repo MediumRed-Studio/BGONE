@@ -1,86 +1,108 @@
 [BaseContainerProps()]
 class BGONE_AttackProfile_TOP : BGONE_AttackProfile_Base
-{	
-	[Attribute("160", UIWidgets.Slider, "Cruise Altitude", "0 1000 1", category: "BGONE")]
-	protected int m_fCruiseAltitude;
-	[Attribute("1250", UIWidgets.Slider, "How Far The Target Must Be From The Shooter For Cruise Altitude To Be Used", "0 10000 1", category: "BGONE")]
-	protected int m_fCruiseAltitudeRange;
+{
+	[Attribute("160", UIWidgets.Slider, "Cruise Altitude (Meters) - Scaled Down When Fired Close Range", "0 500 1", category: "BGONE")]
+	protected int m_iCruiseAltitude;
 	
-	protected int m_iCurrentStage = 0;
+	[Attribute("1000", UIWidgets.Slider, "Distance To Target (Meters) Where Missile Reaches Full Cruise Altitude", "0 2000 1", category: "BGONE")]
+	protected int m_iCruiseAltitudeRange;
+
+	protected int m_iStage = 0;
+	protected vector m_vGroundTargetPos = Vector(0,0,0);
 	
 	void BGONE_AttackProfile_TOP()
 	{
-		m_cProfileName = "Top Attack";
+		m_sProfileName = "Top Attack";
 	}
-	
-	override void InitAttackMode(Projectile projectile, BGONE_TargetData targetData = null)
+
+	override void InitAttackMode(Projectile projectile, BGONE_TargetData targetData)
 	{
 		super.InitAttackMode(projectile, targetData);
-		m_iCurrentStage = 0;
+		m_iStage = 0;
+		if(targetData)
+			m_vGroundTargetPos = targetData.targetPosition;
 	}
-	
+
 	override BGONE_TargetData ProcessFrame(BGONE_TargetData targetData, float flightTime)
 	{
-		if(!targetData || targetData.targetPosition == Vector(0,0,0) || !m_eProjectile)
-		 	return targetData;
+		if(!targetData || !m_eProjectile)
+			return targetData;
 		
-		float distanceFromShooter = vector.Distance(targetData.launchPos, m_eProjectile.GetOrigin());
-		float distanceToTarget = vector.Distance(targetData.targetPosition, m_eProjectile.GetOrigin());
-		float totalDistance = vector.Distance(targetData.launchPos, targetData.targetPosition);
-
-		float currentCruiseAlt = m_fCruiseAltitude;
-		if(m_fCruiseAltitudeRange > 0 && totalDistance < m_fCruiseAltitudeRange)
+		// Always update ground target base position from target data (or entity if available)
+		IEntity targetEnt = targetData.GetTargetEntity();
+		if(targetEnt)
 		{
-			currentCruiseAlt = m_fCruiseAltitude * (totalDistance / m_fCruiseAltitudeRange);
+			if(targetEnt.GetPhysics())
+				m_vGroundTargetPos = targetEnt.CoordToParent(targetEnt.GetPhysics().GetCenterOfMass());
+			else
+				m_vGroundTargetPos = targetEnt.GetOrigin();
+		}
+		else if(targetData.targetPosition != Vector(0,0,0) && m_vGroundTargetPos == Vector(0,0,0))
+		{
+			m_vGroundTargetPos = targetData.targetPosition;
 		}
 
-		switch(m_iCurrentStage)
+		if(m_vGroundTargetPos == Vector(0,0,0))
+			return targetData;
+
+		vector currentPos = m_eProjectile.GetOrigin();
+		vector toGroundTarget = m_vGroundTargetPos - currentPos;
+		float distanceToGroundTarget = toGroundTarget.Length();
+		float distanceFromLaunch = GetDistanceFromLaunch(targetData);
+		
+		// Scale cruise altitude for short ranges
+		float scaledCruiseAltitude = m_iCruiseAltitude;
+		float rangeFraction = (distanceFromLaunch + distanceToGroundTarget) / Math.Max(m_iCruiseAltitudeRange, 1.0);
+		if(rangeFraction < 1.0)
+			scaledCruiseAltitude = m_iCruiseAltitude * rangeFraction;
+			
+		float altitudeDiff = currentPos[1] - m_vGroundTargetPos[1];
+		
+		// State machine for flight profile
+		switch(m_iStage)
 		{
-			// Launch climb
 			case 0:
 			{
-				if (distanceFromShooter < 10) 
-				{
-		            targetData.targetPosition = targetData.targetPosition + vector.Up * (distanceToTarget * 2);
-		        } 
-				else 
-				{
-			    	m_iCurrentStage = 1;
-		        }
+				// Initial launch climb
+				if(distanceFromLaunch > 10.0)
+					m_iStage = 1;
+					
+				targetData.targetPosition = m_vGroundTargetPos + (Vector(0, 1, 0) * (distanceToGroundTarget * 2.0));
 				break;
 			}
-			// Cruise ascent
 			case 1:
 			{
-	       		if(m_eProjectile.GetOrigin()[1] - targetData.targetPosition[1] >= currentCruiseAlt) 
+				// Cruise climb
+				if(altitudeDiff >= scaledCruiseAltitude)
 				{
-					if(currentCruiseAlt < m_fCruiseAltitude)
-	            		m_iCurrentStage = 3;
+					if(rangeFraction < 1.0)
+						m_iStage = 3; // Short range: dive immediately
 					else
-						m_iCurrentStage = 2;
-	        	} 
-				else 
-				{
-	             	targetData.targetPosition = targetData.targetPosition + vector.Up * (distanceToTarget * 1.5);
-	        	}
+						m_iStage = 2; // Level cruise
+				}
+				
+				targetData.targetPosition = m_vGroundTargetPos + (Vector(0, 1, 0) * (distanceToGroundTarget * 1.5));
 				break;
 			}
-			// Cruise level
 			case 2:
 			{
-				if(distanceToTarget < (m_eProjectile.GetOrigin()[1] - targetData.targetPosition[1]) * 2)
-					m_iCurrentStage = 3;
-				else
-					targetData.targetPosition = targetData.targetPosition + vector.Up * currentCruiseAlt;
+				// Level cruise
+				if(distanceToGroundTarget <= (altitudeDiff * 2.0))
+				{
+					m_iStage = 3; // Transition to terminal dive
+				}
+				
+				targetData.targetPosition = m_vGroundTargetPos + (Vector(0, 1, 0) * scaledCruiseAltitude);
 				break;
 			}
-			// Terminal dive
 			case 3:
 			{
+				// Terminal dive directly onto target
+				targetData.targetPosition = m_vGroundTargetPos;
 				break;
 			}
 		}
 		
 		return targetData;
-	}		
-};
+	}
+}

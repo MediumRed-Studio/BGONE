@@ -32,4 +32,4 @@ class BGONE_ArtilleryComputerUI: ChimeraMenuBase
 		if (!m_MapEntity)
 			m_MapEntity = SCR_MapEntity.GetMapInstance();
 	}
-};
+}

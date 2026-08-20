@@ -1,28 +1,31 @@
 [BaseContainerProps()]
-class BGONE_AttackProfile_Base
+class BGONE_AttackProfile_Base : ScriptAndConfig
 {
-	protected Projectile m_eProjectile;
-	protected string m_cProfileName = "Base Attack Profile";
+	[Attribute("Base", UIWidgets.EditBox, desc: "Name of the attack profile", category: "BGONE")]
+	protected string m_sProfileName = "Base";
 	
-	void InitAttackMode(Projectile projectile, BGONE_TargetData targetData = null)
+	protected Projectile m_eProjectile;
+
+	void InitAttackMode(Projectile projectile, BGONE_TargetData targetData)
 	{
 		m_eProjectile = projectile;
 	}
-	
+
 	BGONE_TargetData ProcessFrame(BGONE_TargetData targetData, float flightTime)
 	{
 		return targetData;
 	}
-	
+
+	string GetProfileName()
+	{
+		return m_sProfileName;
+	}
+
 	protected float GetDistanceFromLaunch(BGONE_TargetData targetData)
 	{
 		if(!m_eProjectile || !targetData)
 			return 0;
-		return vector.Distance(m_eProjectile.GetOrigin(), targetData.launchPos);
+			
+		return vector.Distance(targetData.launchPos, m_eProjectile.GetOrigin());
 	}
-	
-	string GetProfileName()
-	{
-		return m_cProfileName;
-	}
-};
+}

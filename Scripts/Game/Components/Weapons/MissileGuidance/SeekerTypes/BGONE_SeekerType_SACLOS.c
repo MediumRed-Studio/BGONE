@@ -1,51 +1,55 @@
 [BaseContainerProps()]
 class BGONE_SeekerType_SACLOS : BGONE_SeekerType_Base
 {
-	[Attribute("5.6", UIWidgets.Slider, "How Many Seconds Until The Missile Self Destructs.","0 30 0.1", category: "BGONE")]
-	protected float m_fTimeToLive;
+	[Attribute("10", UIWidgets.Slider, "FOV In Degrees The Seeker Can See The Shooter/Launcher In Relation To The Missiles Forward Vector", "0 90 0.1", category: "BGONE")]
+	protected float m_fSeekerFOV;
 	
-	[Attribute("60", UIWidgets.Slider, "Degrees The Seeker Can See.","0 360 1", category: "BGONE")]
-	protected float m_fSeekerAngle;
+	[Attribute("100", UIWidgets.Slider, "Min Distance From Launch Before Missile Arms", "0 1000 1", category: "BGONE")]
+	protected int m_iArmingDistance;
+
+	protected vector m_vAimDir;
+	protected vector m_vAimPos;
+	protected vector m_vProjectilePos;
+	protected float m_fTimeOfLastAimUpdate;
 	
-	protected float m_fDistanceFromLaunch;
-	protected vector m_fProjectilePos;
-	protected ref BGONE_TargetData m_eTargetData;
-	
-	protected vector ownerAimDir;
-	protected vector ownerAimPos;
-	protected float lastOwnerUpdate;
-	
-	protected SCR_ChimeraCharacter m_eShooter;
-	protected TurretControllerComponent m_eTurret;
-	
+	protected ref TraceParam m_TraceParam;
+	protected ref array<IEntity> m_aExcludeEntities;
+
 	override void InitSeeker(Projectile projectile, BGONE_TargetData targetData)
 	{
 		super.InitSeeker(projectile, targetData);
-		m_eTargetData = targetData;
+		m_TraceParam = new TraceParam();
+		m_aExcludeEntities = new array<IEntity>();
 	}
-	
+
+	override array<int> GetAvailableArmingDistances()
+	{
+		return {m_iArmingDistance};
+	}
+
+	void UpdateAimingDirServer(vector aimDir, vector aimPos)
+	{
+		m_vAimDir = aimDir;
+		m_vAimPos = aimPos;
+		m_fTimeOfLastAimUpdate = GetGame().GetWorld().GetWorldTime();
+	}
+
 	override BGONE_TargetData ProcessFrame(BGONE_TargetData targetData, float flightTime)
 	{
-		if(!m_eProjectile || !targetData)
+		if(!targetData || !m_eProjectile)
 			return targetData;
-			
-		m_fProjectilePos = m_eProjectile.GetOrigin();
-		m_fDistanceFromLaunch = vector.Distance(targetData.launchPos, m_fProjectilePos);
-	
+		
+		m_vProjectilePos = m_eProjectile.GetOrigin();
+
 		SCR_ChimeraCharacter shooter = targetData.GetShooterEntity();
+		TurretControllerComponent turret = targetData.GetTurretEntity();
 		
-		vector aimDir = Vector(0,0,1);
-		vector aimPos = m_fProjectilePos;
-		
-		// Use updated values from owner, or fall back to server values if no update for 500 milliseconds.
-		if(ownerAimDir != vector.Zero && ownerAimPos != vector.Zero && (GetGame().GetWorld().GetWorldTime() - lastOwnerUpdate < 1000))
+		vector aimDir = m_vAimDir;
+		vector aimPos = m_vAimPos;
+
+		// Fallback to server values if no client update for > 1.0 second
+		if(GetGame().GetWorld().GetWorldTime() - m_fTimeOfLastAimUpdate > 1.0)
 		{
-			aimDir = ownerAimDir;
-			aimPos = ownerAimPos;
-		}
-		else
-		{
-			TurretControllerComponent turret = targetData.GetTurretEntity();
 			if(turret)
 			{
 				BaseSightsComponent sights = turret.GetCurrentSights();
@@ -61,78 +65,70 @@ class BGONE_SeekerType_SACLOS : BGONE_SeekerType_Base
 						aimPos = turret.GetOwner().GetOrigin();
 				}
 			}
-			else if(shooter && shooter.GetHeadAimingComponent())
+			else if(shooter)
 			{
-				aimDir = shooter.GetHeadAimingComponent().GetAimingDirectionWorld();
-				aimPos = shooter.EyePosition();
+				if(shooter.GetHeadAimingComponent())
+				{
+					aimDir = shooter.GetHeadAimingComponent().GetAimingDirectionWorld();
+					aimPos = shooter.EyePosition();
+				}
 			}
 		}
-		
-		vector dirToProj = vector.Direction(aimPos, m_fProjectilePos);
-		vector directionNormal = vector.Zero;
-		if(dirToProj.Length() > 0.001)
-			directionNormal = dirToProj.Normalized();
-			
-		vector aimDirNorm = vector.Zero;
-		if(aimDir.Length() > 0.001)
-			aimDirNorm = aimDir.Normalized();
-			
-		float dotProd = vector.Dot(aimDirNorm, directionNormal);
-		
-		// Lost tracking due to projectile being obscured or seeker not seeing the shooter.
-		bool losToProjectile = TraceLOS(aimPos, m_fProjectilePos, shooter);
-		if(dotProd < Math.Cos(m_fSeekerAngle * Math.DEG2RAD) || !losToProjectile)
+
+		if(aimDir == Vector(0,0,0))
+			return targetData;
+
+		// FOV validation
+		vector toProj = m_vProjectilePos - aimPos;
+		if(toProj.Length() > 0.01)
 		{
-			targetData.targetPosition = Vector(0,0,0);
+			float dot = Math.Clamp(vector.Dot(aimDir.Normalized(), toProj.Normalized()), -1.0, 1.0);
+			float angle = Math.Acos(dot) * Math.RAD2DEG;
+			if(angle > m_fSeekerFOV)
+			{
+				// Projectile outside line of sight cone
+				return targetData;
+			}
 		}
-		else 
+
+		// Line of Sight check
+		IEntity shooterEnt = shooter;
+		if(!shooterEnt && turret)
+			shooterEnt = turret.GetOwner();
+			
+		if(!TraceLOS(aimPos, m_vProjectilePos, shooterEnt))
 		{
-			targetData.targetPosition = aimPos + aimDirNorm * (m_fDistanceFromLaunch + 10);
+			return targetData;
 		}
+
+		// Compute forward aim target
+		float distTraveled = GetDistanceFromLaunch(targetData);
+		targetData.targetPosition = aimPos + (aimDir * (distTraveled + 10.0));
 		
-		m_eTargetData = targetData;
-		
-		if(flightTime > m_fTimeToLive)
-			m_eTargetData.detonated = 1;
-		
-		return m_eTargetData;
+		return targetData;
 	}
-	
-	void UpdateAimingDirServer(vector aimDir, vector aimPos)
-	{
-		ownerAimDir = aimDir;
-		ownerAimPos = aimPos;
-		lastOwnerUpdate = GetGame().GetWorld().GetWorldTime();
-	}
-	
+
 	protected bool TraceLOS(vector from, vector to, IEntity shooter)
-	{	
-		if(!m_eProjectile)
-			return false;
+	{
+		if(vector.DistanceSq(from, to) < 0.01)
+			return true;
 			
-		ref array<IEntity> exclude = {m_eProjectile};
+		m_aExcludeEntities.Clear();
+		m_aExcludeEntities.Insert(m_eProjectile);
 		if(shooter)
 		{
-			exclude.Insert(shooter);
+			m_aExcludeEntities.Insert(shooter);
 			if(shooter.GetRootParent())
-				exclude.Insert(shooter.GetRootParent());
+				m_aExcludeEntities.Insert(shooter.GetRootParent());
 		}
 		
-		TraceParam param = new TraceParam;
-		param.Start = from;
-		param.End = to;
-		param.LayerMask = EPhysicsLayerDefs.Projectile;
-		param.Flags = TraceFlags.ANY_CONTACT | TraceFlags.WORLD | TraceFlags.ENTS; 
-		param.ExcludeArray = exclude;
-
-		World world = GetGame().GetWorld();
-		if(!world)
-			return false;
-			
-		float percent = world.TraceMove(param, null);
-		if (percent == 1)
-			return true;
-				
-		return false;
+		m_TraceParam.Start = from;
+		m_TraceParam.End = to;
+		m_TraceParam.Flags = TraceFlags.WORLD | TraceFlags.ENTS;
+		m_TraceParam.ExcludeArray = m_aExcludeEntities;
+		m_TraceParam.LayerMask = EPhysicsLayerDefs.Projectile;
+		
+		float fraction = GetGame().GetWorld().TraceMove(m_TraceParam, null);
+		return (fraction >= 0.98);
 	}
-};
+}

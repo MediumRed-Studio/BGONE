@@ -1,64 +1,75 @@
 [BaseContainerProps()]
-class BGONE_MissileEngine_Base
+class BGONE_MissileEngine_Base : ScriptAndConfig
 {
-	[Attribute("0.2", UIWidgets.Slider, "Delay in seconds until engine engages", "0 10 0.1", category: "BGONE")]
+	[Attribute("1.0", UIWidgets.Slider, "Thrust Delay (Seconds) Before Engine Ignites After Launch", "0 10 0.1", category: "BGONE")]
 	protected float m_fThrustDelay;
 	
-	[Attribute("2.1", UIWidgets.Slider, "Duration in seconds the engine will provide thrust", "0 60 0.1", category: "BGONE")]
-	protected float m_fBurnTime;
+	[Attribute("3.0", UIWidgets.Slider, "Thrust Duration (Seconds) While Rocket Motor Burns", "0 60 0.1", category: "BGONE")]
+	protected float m_fThrustBurnTime;
 	
-	[Attribute("20", UIWidgets.Slider, "The speed in m/s the missile is launched at", "0 1000 0.1", category: "BGONE")]
+	[Attribute("50", UIWidgets.Slider, "Initial Exit Velocity (Meters per Second)", "0 500 1", category: "BGONE")]
 	protected float m_fInitialSpeed;
 	
-	[Attribute("200", UIWidgets.Slider, "The peak speed the missile will reach at the end of burn time", "0 1000 0.1", category: "BGONE")]
-	protected float m_fMaximumSpeed;
+	[Attribute("250", UIWidgets.Slider, "Max Powered Speed (Meters per Second)", "0 1500 1", category: "BGONE")]
+	protected float m_fMaxSpeed;
 	
-	[Attribute("5.6", UIWidgets.Slider, "Seconds until the missile self destructs","0 120 0.1", category: "BGONE")]
+	[Attribute("30", UIWidgets.Slider, "Total Flight Lifetime Before Fuel / Battery Exhaustion", "0 120 1", category: "BGONE")]
 	protected float m_fTimeToLive;
-	
+
 	float GetThrustDelay()
 	{
 		return m_fThrustDelay;
 	}
-	
-	bool ProcessFrame(Projectile projectile, vector targetPos, float flightTime, float timeSlice)
+
+	float CalculateSpeed(float flightTime)
 	{
-		if(!projectile || !projectile.GetPhysics())
-			return true;
+		if(flightTime < m_fThrustDelay)
+			return m_fInitialSpeed;
+
+		if(flightTime <= m_fThrustBurnTime)
+		{
+			float burnFraction = (flightTime - m_fThrustDelay) / Math.Max(m_fThrustBurnTime - m_fThrustDelay, 0.001);
+			return Math.Lerp(m_fInitialSpeed, m_fMaxSpeed, burnFraction);
+		}
+
+		float coastFraction = (flightTime - m_fThrustBurnTime) / Math.Max(m_fTimeToLive - m_fThrustBurnTime, 0.001);
+		return Math.Lerp(m_fMaxSpeed, m_fInitialSpeed, Math.Clamp(coastFraction, 0, 1));
+	}
+
+	int ProcessFrame(Projectile projectile, vector targetPos, float flightTime, float timeSlice)
+	{
+		if(!projectile)
+			return EBGONE_DetonationState.NONE;
 			
-		if(flightTime > m_fTimeToLive)
-			return true;
+		Physics phys = projectile.GetPhysics();
+		if(!phys)
+			return EBGONE_DetonationState.NONE;
+
+		vector currentPos = projectile.GetOrigin();
+		vector toTarget = targetPos - currentPos;
+		float distToTarget = toTarget.Length();
 		
-		vector dir = vector.Direction(projectile.GetOrigin(), targetPos);
-		vector targetVector;
-		if(dir.Length() > 0.001)
-			targetVector = dir.Normalized();
-		else if(projectile.GetPhysics().GetVelocity().Length() > 0.001)
-			targetVector = projectile.GetPhysics().GetVelocity().Normalized();
-		else
-			targetVector = projectile.GetYawPitchRoll().AnglesToVector();
+		if(distToTarget < 0.001)
+			return EBGONE_DetonationState.NONE;
+
+		vector targetDir = toTarget.Normalized();
+		float currentSpeed = CalculateSpeed(flightTime);
 		
-		float currentSpeed = projectile.GetPhysics().GetVelocity().Length();
-		if(flightTime >= m_fThrustDelay && flightTime < m_fBurnTime)
-		{
-			float burnFraction = Math.Clamp((flightTime - m_fThrustDelay) / Math.Max(m_fBurnTime - m_fThrustDelay, 0.001), 0, 1);
-			currentSpeed = Math.Lerp(m_fInitialSpeed, m_fMaximumSpeed, burnFraction);
-		}
-		else if(flightTime >= m_fBurnTime)
-		{
-			float decayFraction = Math.Clamp((flightTime - m_fBurnTime) / Math.Max(m_fTimeToLive - m_fBurnTime, 0.001), 0, 1);
-			currentSpeed = Math.Lerp(m_fMaximumSpeed, m_fInitialSpeed, decayFraction);
-		}
+		// Map angular error to [-180, 180] to prevent Euler 0/360 gimbal snap
+		vector targetAngles = targetDir.VectorToAngles();
+		vector currentAngles = projectile.GetYawPitchRoll();
+		vector rotationError = Vector(
+			Math.MapAngle(targetAngles[0] - currentAngles[0]),
+			Math.MapAngle(targetAngles[1] - currentAngles[1]),
+			Math.MapAngle(targetAngles[2] - currentAngles[2])
+		);
 		
-		if(currentSpeed < 1.0)
-			currentSpeed = Math.Max(m_fInitialSpeed, 10.0);
-		
-		vector rotationError = targetVector.VectorToAngles() - projectile.GetYawPitchRoll();
 		vector angularVel = SCR_Math3D.GetFixedAxisVector(rotationError) * Math.DEG2RAD;
-		vector vel = targetVector * currentSpeed;
+		vector vel = targetDir * currentSpeed;
 		
-		projectile.GetPhysics().SetAngularVelocity(angularVel);
-		projectile.GetPhysics().SetVelocity(vel);
-		return false;
-	}			
-};
+		phys.SetAngularVelocity(angularVel);
+		phys.SetVelocity(vel);
+		
+		return EBGONE_DetonationState.NONE;
+	}
+}

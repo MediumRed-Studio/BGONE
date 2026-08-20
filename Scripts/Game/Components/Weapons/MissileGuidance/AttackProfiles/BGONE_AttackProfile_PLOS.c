@@ -3,21 +3,22 @@ class BGONE_AttackProfile_PLOS : BGONE_AttackProfile_Base
 {
 	void BGONE_AttackProfile_PLOS()
 	{
-		m_cProfileName = "Direct Attack";
+		m_sProfileName = "PLOS Direct";
 	}
-	
+
 	override BGONE_TargetData ProcessFrame(BGONE_TargetData targetData, float flightTime)
 	{
-		if(!targetData)
-			return null;
-			
-		float m_fNewYaw = targetData.launchDir.ToYaw() + (targetData.yawChange * flightTime);
-		float m_fNewPitch = targetData.launchDir.VectorToAngles()[1] + (targetData.pitchChange * flightTime);
+		if(!targetData || !m_eProjectile)
+			return targetData;
 		
-		vector newTargetDirection = Vector(m_fNewYaw, m_fNewPitch, 0).AnglesToVector();
-		vector m_vTargetPos = targetData.launchPos + (newTargetDirection * (GetDistanceFromLaunch(targetData) + 10));
-			
-		targetData.targetPosition = m_vTargetPos;
+		vector launchAngles = targetData.launchDir.VectorToAngles();
+		float newYaw = launchAngles[0] + (targetData.yawChange * flightTime);
+		float newPitch = launchAngles[1] + (targetData.pitchChange * flightTime);
+		
+		vector targetAngles = Vector(newYaw, newPitch, 0);
+		vector targetPos = targetData.launchPos + (targetAngles.AnglesToVector() * (GetDistanceFromLaunch(targetData) + 10.0));
+		targetData.targetPosition = targetPos;
+		
 		return targetData;
-	}		
-};
+	}
+}

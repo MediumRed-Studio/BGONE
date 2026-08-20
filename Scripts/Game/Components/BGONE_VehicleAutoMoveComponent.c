@@ -1,7 +1,7 @@
 [ComponentEditorProps(category: "GameScripted/Vehicles/BGONE", description: "Moves vehicle forward and backward for missile guidance target testing")]
 class BGONE_VehicleAutoMoveComponentClass : ScriptGameComponentClass
 {
-};
+}
 
 class BGONE_VehicleAutoMoveComponent : ScriptGameComponent
 {
@@ -12,10 +12,11 @@ class BGONE_VehicleAutoMoveComponent : ScriptGameComponent
 	protected float m_fTravelDistance;
 	
 	protected IEntity m_eOwner;
-	protected vector m_vInitialPos;
 	protected vector m_vInitialDir;
 	protected bool m_bMovingForward = true;
 	protected float m_fDistanceTraveled = 0;
+	protected RplComponent m_RplComponent;
+	protected Physics m_Physics;
 	
 	override void OnPostInit(IEntity owner)
 	{
@@ -27,7 +28,9 @@ class BGONE_VehicleAutoMoveComponent : ScriptGameComponent
 		m_eOwner = owner;
 		if (m_eOwner)
 		{
-			m_vInitialPos = m_eOwner.GetOrigin();
+			m_RplComponent = RplComponent.Cast(m_eOwner.FindComponent(RplComponent));
+			m_Physics = m_eOwner.GetPhysics();
+			
 			vector mat[4];
 			m_eOwner.GetWorldTransform(mat);
 			m_vInitialDir = mat[2];
@@ -39,12 +42,13 @@ class BGONE_VehicleAutoMoveComponent : ScriptGameComponent
 		if (!m_eOwner || m_fSpeed <= 0)
 			return;
 			
-		RplComponent rpl = RplComponent.Cast(m_eOwner.FindComponent(RplComponent));
-		if (rpl && !rpl.IsMaster())
+		if (m_RplComponent && !m_RplComponent.IsMaster())
 			return;
 			
-		Physics phys = m_eOwner.GetPhysics();
-		if (!phys)
+		if (!m_Physics)
+			m_Physics = m_eOwner.GetPhysics();
+			
+		if (!m_Physics)
 			return;
 			
 		float step = m_fSpeed * timeSlice;
@@ -60,6 +64,6 @@ class BGONE_VehicleAutoMoveComponent : ScriptGameComponent
 		if (!m_bMovingForward)
 			moveDir = -m_vInitialDir;
 			
-		phys.SetVelocity(moveDir * m_fSpeed);
+		m_Physics.SetVelocity(moveDir * m_fSpeed);
 	}
-};
+}

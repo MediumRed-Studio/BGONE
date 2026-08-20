@@ -1,19 +1,27 @@
+enum EBGONE_DetonationState
+{
+	NONE = 0,
+	IMPACT = 1,
+	AIRBURST = 2
+}
+
 class BGONE_TargetData : ScriptAndConfig
 {
 	RplId shooterRplId;
 	RplId turretRplId;
 	int attackProfileIndex;
 	int armingDistancesIndex;
-	int detonated = 0;
+	int detonated = EBGONE_DetonationState.NONE;
 	vector launchPos;
 	vector launchDir;
 	vector targetPosition;
 	float yawChange;
 	float pitchChange;
 	RplId targetRplId;
-	IEntity targetEntity;
-	SCR_ChimeraCharacter shooterEntity;
-	TurretControllerComponent turretEntity;
+	
+	protected IEntity targetEntity;
+	protected SCR_ChimeraCharacter shooterEntity;
+	protected TurretControllerComponent turretEntity;
 	
 	SCR_ChimeraCharacter GetShooterEntity()
 	{
@@ -48,23 +56,14 @@ class BGONE_TargetData : ScriptAndConfig
 		return turretEntity;
 	}
 	
-	void DEBUG_PrintValues()
+	void InvalidateEntities()
 	{
-		Print("----- Target Data Values ------");
-		Print("shooterRplId: " + shooterRplId);
-		Print("turretRplId: " + turretRplId);
-		Print("attackProfileMode: " + attackProfileIndex);
-		Print("armingDistance: " + armingDistancesIndex);
-		Print("detonated: " + detonated);
-		Print("launchPos: " + launchPos);
-		Print("launchDir: " + launchDir);
-		Print("targetPosition: " + targetPosition);
-		Print("yawChange: " + yawChange);
-		Print("pitchChange: " + pitchChange);
-		Print("targetRplId: " + targetRplId);
+		targetEntity = null;
+		shooterEntity = null;
+		turretEntity = null;
 	}
 	
-	// Replication Methods
+	// Replication Methods (68 Bytes Exact Snapshot)
 	static bool Extract(BGONE_TargetData instance, ScriptCtx ctx, SSnapSerializerBase snapshot)
 	{
 		snapshot.SerializeInt(instance.shooterRplId);
@@ -94,6 +93,7 @@ class BGONE_TargetData : ScriptAndConfig
 		snapshot.SerializeFloat(instance.yawChange);
 		snapshot.SerializeFloat(instance.pitchChange);
 		snapshot.SerializeInt(instance.targetRplId);
+		instance.InvalidateEntities();
 		return true;
 	}
 
@@ -128,9 +128,8 @@ class BGONE_TargetData : ScriptAndConfig
 		return true;
 	}
 
-	static bool SnapCompare(SSnapSerializerBase lhs, SSnapSerializerBase rhs , ScriptCtx ctx)
+	static bool SnapCompare(SSnapSerializerBase lhs, SSnapSerializerBase rhs, ScriptCtx ctx)
 	{
-		// 5 ints (20) + 3 vectors (36) + 2 floats (8) + 1 int (4) = 68 bytes
 		return lhs.CompareSnapshots(rhs, 68);
 	}
 
@@ -152,70 +151,44 @@ class BGONE_TargetData : ScriptAndConfig
 	static void EncodeDelta(SSnapSerializerBase oldSnapshot, SSnapSerializerBase newSnapshot, ScriptCtx ctx, ScriptBitSerializer packet)
 	{
 		int oldInt;
-		oldSnapshot.SerializeInt(oldInt);
 		int newInt;
-		newSnapshot.SerializeInt(newInt);
-		int deltaInt = newInt - oldInt;
-		packet.SerializeInt(deltaInt);
+		int deltaInt;
 
-		oldSnapshot.SerializeInt(oldInt);
-		newSnapshot.SerializeInt(newInt);
-		deltaInt = newInt - oldInt;
-		packet.SerializeInt(deltaInt);
-		
-		oldSnapshot.SerializeInt(oldInt);
-		newSnapshot.SerializeInt(newInt);
-		deltaInt = newInt - oldInt;
-		packet.SerializeInt(deltaInt);
-
-		oldSnapshot.SerializeInt(oldInt);
-		newSnapshot.SerializeInt(newInt);
-		deltaInt = newInt - oldInt;
-		packet.SerializeInt(deltaInt);
-		
-		oldSnapshot.SerializeInt(oldInt);
-		newSnapshot.SerializeInt(newInt);
-		deltaInt = newInt - oldInt;
-		packet.SerializeInt(deltaInt);
+		for(int i = 0; i < 5; i++)
+		{
+			oldSnapshot.SerializeInt(oldInt);
+			newSnapshot.SerializeInt(newInt);
+			deltaInt = newInt - oldInt;
+			packet.SerializeInt(deltaInt);
+		}
 		
 		vector oldVector;
-		oldSnapshot.SerializeVector(oldVector);
 		vector newVector;
-		newSnapshot.SerializeVector(newVector);
-		bool vectorChanged = newVector != oldVector;
-		packet.Serialize(vectorChanged, 1);
-		if (vectorChanged)
-			packet.Serialize(newVector, 96);
-		
-		oldSnapshot.SerializeVector(oldVector);
-		newSnapshot.SerializeVector(newVector);
-		vectorChanged = newVector != oldVector;
-		packet.Serialize(vectorChanged, 1);
-		if (vectorChanged)
-			packet.Serialize(newVector, 96);
-		
-		oldSnapshot.SerializeVector(oldVector);
-		newSnapshot.SerializeVector(newVector);
-		vectorChanged = newVector != oldVector;
-		packet.Serialize(vectorChanged, 1);
-		if (vectorChanged)
-			packet.Serialize(newVector, 96);
+		bool vectorChanged;
+
+		for(int v = 0; v < 3; v++)
+		{
+			oldSnapshot.SerializeVector(oldVector);
+			newSnapshot.SerializeVector(newVector);
+			vectorChanged = (newVector != oldVector);
+			packet.Serialize(vectorChanged, 1);
+			if (vectorChanged)
+				packet.Serialize(newVector, 96);
+		}
 		
 		float oldFloat;
-		oldSnapshot.SerializeFloat(oldFloat);
 		float newFloat;
-		newSnapshot.SerializeFloat(newFloat);
-		bool floatChanged = newFloat != oldFloat;
-		packet.Serialize(floatChanged, 1);
-		if (floatChanged)
-			packet.Serialize(newFloat, 32);
-		
-		oldSnapshot.SerializeFloat(oldFloat);
-		newSnapshot.SerializeFloat(newFloat);
-		floatChanged = newFloat != oldFloat;
-		packet.Serialize(floatChanged, 1);
-		if (floatChanged)
-			packet.Serialize(newFloat, 32);
+		bool floatChanged;
+
+		for(int f = 0; f < 2; f++)
+		{
+			oldSnapshot.SerializeFloat(oldFloat);
+			newSnapshot.SerializeFloat(newFloat);
+			floatChanged = (newFloat != oldFloat);
+			packet.Serialize(floatChanged, 1);
+			if (floatChanged)
+				packet.Serialize(newFloat, 32);
+		}
 		
 		oldSnapshot.SerializeInt(oldInt);
 		newSnapshot.SerializeInt(newInt);
@@ -226,77 +199,46 @@ class BGONE_TargetData : ScriptAndConfig
 	static void DecodeDelta(ScriptBitSerializer packet, ScriptCtx ctx, SSnapSerializerBase oldSnapshot, SSnapSerializerBase newSnapshot)
 	{
 		int oldInt;
-		oldSnapshot.SerializeInt(oldInt);
+		int newInt;
 		int deltaInt;
-		packet.SerializeInt(deltaInt);
-		int newInt = oldInt + deltaInt;
-		newSnapshot.SerializeInt(newInt);
 
-		oldSnapshot.SerializeInt(oldInt);
-		packet.SerializeInt(deltaInt);
-		newInt = oldInt + deltaInt;
-		newSnapshot.SerializeInt(newInt);
-		
-		oldSnapshot.SerializeInt(oldInt);
-		packet.SerializeInt(deltaInt);
-		newInt = oldInt + deltaInt;
-		newSnapshot.SerializeInt(newInt);
-		
-		oldSnapshot.SerializeInt(oldInt);
-		packet.SerializeInt(deltaInt);
-		newInt = oldInt + deltaInt;
-		newSnapshot.SerializeInt(newInt);
-		
-		oldSnapshot.SerializeInt(oldInt);
-		packet.SerializeInt(deltaInt);
-		newInt = oldInt + deltaInt;
-		newSnapshot.SerializeInt(newInt);
+		for(int i = 0; i < 5; i++)
+		{
+			oldSnapshot.SerializeInt(oldInt);
+			packet.SerializeInt(deltaInt);
+			newInt = oldInt + deltaInt;
+			newSnapshot.SerializeInt(newInt);
+		}
 		
 		vector oldVector;
-		oldSnapshot.SerializeVector(oldVector);
-		bool vectorChanged;
-		packet.Serialize(vectorChanged, 1);
 		vector newVector;
-		if (vectorChanged)
-			packet.Serialize(newVector, 96);
-		else
-			newVector = oldVector;
-		newSnapshot.SerializeVector(newVector);
-		
-		oldSnapshot.SerializeVector(oldVector);
-		packet.Serialize(vectorChanged, 1);
-		if (vectorChanged)
-			packet.Serialize(newVector, 96);
-		else
-			newVector = oldVector;
-		newSnapshot.SerializeVector(newVector);
-		
-		oldSnapshot.SerializeVector(oldVector);
-		packet.Serialize(vectorChanged, 1);
-		if (vectorChanged)
-			packet.Serialize(newVector, 96);
-		else
-			newVector = oldVector;
-		newSnapshot.SerializeVector(newVector);
+		bool vectorChanged;
+
+		for(int v = 0; v < 3; v++)
+		{
+			oldSnapshot.SerializeVector(oldVector);
+			packet.Serialize(vectorChanged, 1);
+			if (vectorChanged)
+				packet.Serialize(newVector, 96);
+			else
+				newVector = oldVector;
+			newSnapshot.SerializeVector(newVector);
+		}
 		
 		float oldFloat;
-		oldSnapshot.SerializeFloat(oldFloat);
-		bool floatChanged;
-		packet.Serialize(floatChanged, 1);
 		float newFloat;
-		if (floatChanged)
-			packet.Serialize(newFloat, 32);
-		else
-			newFloat = oldFloat;
-		newSnapshot.SerializeFloat(newFloat);
-		
-		oldSnapshot.SerializeFloat(oldFloat);
-		packet.Serialize(floatChanged, 1);
-		if (floatChanged)
-			packet.Serialize(newFloat, 32);
-		else
-			newFloat = oldFloat;
-		newSnapshot.SerializeFloat(newFloat);
+		bool floatChanged;
+
+		for(int f = 0; f < 2; f++)
+		{
+			oldSnapshot.SerializeFloat(oldFloat);
+			packet.Serialize(floatChanged, 1);
+			if (floatChanged)
+				packet.Serialize(newFloat, 32);
+			else
+				newFloat = oldFloat;
+			newSnapshot.SerializeFloat(newFloat);
+		}
 		
 		oldSnapshot.SerializeInt(oldInt);
 		packet.SerializeInt(deltaInt);

@@ -1,7 +1,7 @@
 [ComponentEditorProps(category: "GameScripted/Weapons/BGONE", description: "Guided missile projectile flight simulator and warhead controller")]
 class BGONE_GuidedMissileComponentClass : ScriptGameComponentClass
 {
-};
+}
 
 class BGONE_GuidedMissileComponent : ScriptComponent
 {
@@ -21,26 +21,25 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	protected bool m_bGuidanceActive = false;
 	protected ref BGONE_TargetData m_eCurrentTargetData;
 	protected RplComponent m_RplComponent;
-	BGONE_GuidedMissileLauncherComponent launcherComp;
+	protected BGONE_GuidedMissileLauncherComponent m_LauncherComp;
 	protected vector m_vLastTargetPosition = Vector(0,0,0);
 	
 	protected float m_fSaclosFixNextUpdateTime = 0;
-	protected float m_fSaclosFixUpdateInterval = 50;
+	protected float m_fSaclosFixUpdateInterval = 0.05; // 50ms (in seconds)
 	
 	protected float m_fSyncPosNextUpdateTime = 0;
-	protected float m_fSyncPosUpdateInterval = 50;
+	protected float m_fSyncPosUpdateInterval = 0.05;   // 50ms (in seconds)
 	
-	protected bool m_bDebugEnabled = false;
-	protected ref array<ref Shape> m_aDbgCollisionShapes;
-	protected vector m_vPreviousTargetPos;
+	override void OnPostInit(IEntity owner)
+	{
+		SetEventMask(owner, EntityEvent.INIT | EntityEvent.SIMULATE);
+	}
 	
 	override void EOnInit(IEntity owner)
 	{
 		m_eOwner = Projectile.Cast(owner);
 		if(m_eOwner)
 			m_RplComponent = RplComponent.Cast(m_eOwner.FindComponent(RplComponent));
-		
-		m_aDbgCollisionShapes = new array<ref Shape>;
 	}
 	
 	protected void DeleteMissile(IEntity owner)
@@ -61,12 +60,12 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		m_iArmingDistanceIndex = armingDistanceIndex;
 	}
 	
-	array<ref Shape> onLaunched(BGONE_TargetData targetData, BGONE_GuidedMissileLauncherComponent launcher)
+	void onLaunched(BGONE_TargetData targetData, BGONE_GuidedMissileLauncherComponent launcher)
 	{
-		launcherComp = launcher;
+		m_LauncherComp = launcher;
 		m_eCurrentTargetData = targetData;
 		if(!m_eCurrentTargetData)
-			return m_aDbgCollisionShapes;
+			return;
 			
 		SetAttackAndFireModes(m_eCurrentTargetData.attackProfileIndex, m_eCurrentTargetData.armingDistancesIndex);
 		
@@ -80,8 +79,6 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		
 		m_fFlightTime = 0;
 		m_bGuidanceActive = true;
-		
-		return m_aDbgCollisionShapes;
 	}
 	
 	override void EOnSimulate(IEntity owner, float timeSlice)
@@ -98,14 +95,15 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		if(m_eSeekerTypeComponent)
 			m_eCurrentTargetData = m_eSeekerTypeComponent.ProcessFrame(m_eCurrentTargetData, m_fFlightTime);
 		
-		// SACLOS Fix
+		// SACLOS Periodic Update
 		if(m_eSeekerTypeComponent && m_eSeekerTypeComponent.Type() == BGONE_SeekerType_SACLOS)
 		{
-			if(GetGame().GetWorld().GetWorldTime() > m_fSaclosFixNextUpdateTime)
+			float currentTime = GetGame().GetWorld().GetWorldTime();
+			if(currentTime > m_fSaclosFixNextUpdateTime)
 			{
-				m_fSaclosFixNextUpdateTime = GetGame().GetWorld().GetWorldTime() + m_fSaclosFixUpdateInterval;
-				if(launcherComp)
-					launcherComp.SaclosFix();
+				m_fSaclosFixNextUpdateTime = currentTime + m_fSaclosFixUpdateInterval;
+				if(m_LauncherComp)
+					m_LauncherComp.SaclosFix();
 			}
 		}
 		
@@ -116,20 +114,12 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 			m_eCurrentTargetData.targetPosition = m_vLastTargetPosition;
 		
 		// Detonation handling
-		if(m_eCurrentTargetData.detonated > 0)
+		if(m_eCurrentTargetData.detonated > EBGONE_DetonationState.NONE)
 		{
 			m_bGuidanceActive = false;
-			bool down = (m_eCurrentTargetData.detonated == 2);
-			
-			vector vel = vector.Zero;
-			if(m_eOwner && m_eOwner.GetPhysics())
-				vel = m_eOwner.GetPhysics().GetVelocity();
-				
+			bool down = (m_eCurrentTargetData.detonated == EBGONE_DetonationState.AIRBURST);
 			vector explodePos = m_eOwner.GetOrigin();
-			if(vel.Length() > 0.01)
-				explodePos = explodePos + vel.Normalized() * 1.5;
-				
-			m_eOwner.SetOrigin(explodePos);
+			
 			if(down)
 			{
 				vector angles = m_eOwner.GetYawPitchRoll();
@@ -156,10 +146,11 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 				m_eCurrentTargetData.detonated = m_eMissileEngineComponent.ProcessFrame(m_eOwner, m_eCurrentTargetData.targetPosition, m_fFlightTime, timeSlice);
 		}
 		
-		// Periodic network transform synchronization
-		if(GetGame().GetWorld().GetWorldTime() > m_fSyncPosNextUpdateTime)
+		// Periodic network transform synchronization (20 Hz)
+		float now = GetGame().GetWorld().GetWorldTime();
+		if(now > m_fSyncPosNextUpdateTime)
 		{
-			m_fSyncPosNextUpdateTime = GetGame().GetWorld().GetWorldTime() + m_fSyncPosUpdateInterval;
+			m_fSyncPosNextUpdateTime = now + m_fSyncPosUpdateInterval;
 			if(m_eOwner && m_eOwner.GetPhysics())
 			{
 				vector vel = m_eOwner.GetPhysics().GetVelocity();
@@ -191,6 +182,11 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	[RplRpc(RplChannel.Unreliable, RplRcver.Server)]
 	void RpcDo_UpdateAimingDir(vector aimDir, vector aimPos)
 	{
+		// Sanitize inputs against NaN / Infinity
+		if(float.IsNaN(aimDir[0]) || float.IsNaN(aimDir[1]) || float.IsNaN(aimDir[2]) ||
+		   float.IsNaN(aimPos[0]) || float.IsNaN(aimPos[1]) || float.IsNaN(aimPos[2]))
+			return;
+			
 		BGONE_SeekerType_SACLOS seeker = BGONE_SeekerType_SACLOS.Cast(m_eSeekerTypeComponent);
 		if(!seeker) 
 			return;
@@ -250,15 +246,4 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 			return m_eAttackProfileComponents[m_eAttackProfileComponentIndex];
 		return null;
 	}
-	
-	private void Debug_DrawLineSimple(vector start, vector end, array<ref Shape> dbgShapes, int color = ARGBF(1, 1, 1, 1))
-	{
-		vector p[2];
-		p[0] = start;
-		p[1] = end;
-
-		int shapeFlags = ShapeFlags.NOOUTLINE;
-		Shape s = Shape.CreateLines(color, shapeFlags, p, 2);
-		dbgShapes.Insert(s);	
-	}
-};
+}

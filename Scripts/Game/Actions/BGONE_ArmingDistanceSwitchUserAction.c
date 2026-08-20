@@ -1,47 +1,46 @@
-class BGONE_ArmingDistanceSwitchUserAction : SCR_InspectionUserAction
+class BGONE_ArmingDistanceSwitchUserAction : ScriptedUserAction
 {
+	protected BaseWeaponComponent m_WeaponComponent;
+	protected BGONE_GuidedMissileLauncherComponent m_LauncherComponent;
+	
+	override void Init(IEntity pOwnerEntity, GenericComponent pManagerComponent)
+	{
+		m_WeaponComponent = BaseWeaponComponent.Cast(pOwnerEntity.FindComponent(BaseWeaponComponent));
+		if(m_WeaponComponent)
+			m_LauncherComponent = BGONE_GuidedMissileLauncherComponent.Cast(m_WeaponComponent.FindComponent(BGONE_GuidedMissileLauncherComponent));
+	}
+	
 	override bool CanBeShownScript(IEntity user)
 	{
-		if (!super.CanBeShownScript(user))
-			return false;
-		
-		if (!m_WeaponComponent)
+		if(!m_LauncherComponent && m_WeaponComponent)
+			m_LauncherComponent = BGONE_GuidedMissileLauncherComponent.Cast(m_WeaponComponent.FindComponent(BGONE_GuidedMissileLauncherComponent));
+			
+		if(!m_LauncherComponent)
 			return false;
 			
-		BGONE_GuidedMissileLauncherComponent missileComponent = BGONE_GuidedMissileLauncherComponent.Cast(m_WeaponComponent.FindComponent(BGONE_GuidedMissileLauncherComponent));
-		if (!missileComponent)
-			return false;
-		
-		return (missileComponent.GetArmingDistancesCount() > 1);
+		return (m_LauncherComponent.GetArmingDistancesCount() > 1);
 	}
 	
 	override bool GetActionNameScript(out string outName)
 	{
-		if (!m_WeaponComponent)
-		{
-			outName = "Change Arming Distance";
+		if(!m_LauncherComponent && m_WeaponComponent)
+			m_LauncherComponent = BGONE_GuidedMissileLauncherComponent.Cast(m_WeaponComponent.FindComponent(BGONE_GuidedMissileLauncherComponent));
+			
+		if(!m_LauncherComponent)
 			return false;
-		}
-		
-		BGONE_GuidedMissileLauncherComponent missileComponent = BGONE_GuidedMissileLauncherComponent.Cast(m_WeaponComponent.FindComponent(BGONE_GuidedMissileLauncherComponent));
-		if (!missileComponent)
-		{
-			outName = "Change Arming Distance";
-			return false;
-		}
-		
-		outName = "Change Arming Distance (" + missileComponent.GetCurrentArmingDistance().ToString() + "m)";
+			
+		outName = string.Format("Change Arming Distance: %1m", m_LauncherComponent.GetCurrentArmingDistance());
 		return true;
 	}
 	
 	override void PerformAction(IEntity pOwnerEntity, IEntity pUserEntity)
 	{
-		if (!m_WeaponComponent)
+		if(!m_LauncherComponent && m_WeaponComponent)
+			m_LauncherComponent = BGONE_GuidedMissileLauncherComponent.Cast(m_WeaponComponent.FindComponent(BGONE_GuidedMissileLauncherComponent));
+			
+		if(!m_LauncherComponent)
 			return;
-		BGONE_GuidedMissileLauncherComponent missileComponent = BGONE_GuidedMissileLauncherComponent.Cast(m_WeaponComponent.FindComponent(BGONE_GuidedMissileLauncherComponent));
-		if (!missileComponent)
-			return;
-		
-		missileComponent.CycleArmingDistance();
+			
+		m_LauncherComponent.CycleArmingDistance();
 	}
-};
+}

@@ -1,134 +1,118 @@
 [BaseContainerProps()]
 class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 {
-	[Attribute("5.6", UIWidgets.Slider, "How Many Seconds Until The Missile Self Destructs.","0 30 0.1", category: "BGONE")]
-	protected float m_fTimeToLive;
+	[Attribute("10", UIWidgets.Slider, "FOV in degrees the seeker can see the target in relation to its forward vector", "0 90 0.1", category: "BGONE")]
+	protected float m_fSeekerFOV;
 	
-	[Attribute("30", UIWidgets.Slider, "Field Of View For The Seeker In Degrees.","0 360 1", category: "BGONE")]
-	protected float m_fSeekerFieldOfView;
+	[Attribute("100", UIWidgets.Slider, "Min distance from launch before missile arms", "0 1000 1", category: "BGONE")]
+	protected int m_iArmingDistance;
 	
-	[Attribute("2", UIWidgets.Slider, "How Many Seconds After Target Is Lost Until The Missile Self Destructs.","0 100 0.1", category: "BGONE")]
-	protected float m_fNoTargetDestructTime;
-	
-	protected ref BGONE_TargetData m_eTargetData;
-	protected IEntity target;
-	protected float m_fTargetLastSeenTime;
+	protected ref TraceParam m_TraceParam;
+	protected ref array<IEntity> m_aExcludeEntities;
 	
 	override void InitSeeker(Projectile projectile, BGONE_TargetData targetData)
 	{
 		super.InitSeeker(projectile, targetData);
-		m_eTargetData = targetData;
+		m_TraceParam = new TraceParam();
+		m_aExcludeEntities = new array<IEntity>();
 	}
-	
+
+	override array<int> GetAvailableArmingDistances()
+	{
+		return {m_iArmingDistance};
+	}
+
 	override BGONE_TargetData ProcessFrame(BGONE_TargetData targetData, float flightTime)
 	{
-		if(flightTime > m_fTimeToLive)
-		{
-			if(m_eTargetData)
-				m_eTargetData.detonated = 1;
-			else
-				targetData.detonated = 1;
-			return targetData;
-		}
-				
-		if(!targetData || !targetData.targetRplId.IsValid())
-			return targetData;
+		if(!targetData)
+			return null;
 			
-		if(!target)
-			target = targetData.GetTargetEntity();
-			
+		IEntity target = targetData.GetTargetEntity();
 		if(!target)
 		{
-			targetData.targetPosition = Vector(0,0,0);
 			return targetData;
 		}
-		
-		vector centerOfMass = vector.Zero;
+
+		if(GetDistanceFromLaunch(targetData) >= m_iArmingDistance)
+		{
+			// Check proximity detonation
+			if(vector.Distance(target.GetOrigin(), m_eProjectile.GetOrigin()) < 3.0)
+			{
+				targetData.detonated = EBGONE_DetonationState.IMPACT;
+				return targetData;
+			}
+		}
+
+		vector centerOfMass = Vector(0,0,0);
 		if(target.GetPhysics())
 			centerOfMass = target.GetPhysics().GetCenterOfMass();
 			
-		vector centerPos;
-		if(centerOfMass == vector.Zero)
-			centerPos = target.GetOrigin() + vector.Up;
-		else
-			centerPos = target.CoordToParent(centerOfMass);
+		vector centerPos = target.CoordToParent(centerOfMass);
+		vector projPos = m_eProjectile.GetOrigin();
+		vector toTarget = centerPos - projPos;
+		float distToTarget = toTarget.Length();
 		
-		vector targetPos = centerPos;
-		
-		if(!m_eProjectile || !m_eProjectile.GetPhysics())
+		if(distToTarget < 0.001)
 			return targetData;
+
+		// FOV validation
+		vector vel = Vector(0,0,1);
+		if(m_eProjectile.GetPhysics())
+			vel = m_eProjectile.GetPhysics().GetVelocity();
 			
-		// Check target within seeker angle and LOS to target is clear.
-		bool seekerAnglesOk = CheckSeekerAngle(m_eProjectile.GetOrigin(), m_eProjectile.GetPhysics().GetVelocity(), targetPos);
-		bool losToTarget = TraceLOS(m_eProjectile.GetOrigin(), targetPos);
-		if(!seekerAnglesOk || !losToTarget)
+		if(vel.Length() > 0.01)
 		{
-			if(flightTime - m_fTargetLastSeenTime > m_fNoTargetDestructTime)
-				targetData.detonated = 1;
-			
-			targetData.targetPosition = Vector(0,0,0);
-			m_eTargetData = targetData;
-			return m_eTargetData;
+			float dot = Math.Clamp(vector.Dot(vel.Normalized(), toTarget.Normalized()), -1.0, 1.0);
+			float angle = Math.Acos(dot) * Math.RAD2DEG;
+			if(angle > m_fSeekerFOV)
+			{
+				// Lost line of sight FOV
+				return targetData;
+			}
 		}
-		m_fTargetLastSeenTime = flightTime;
-		
-		// Calculate lead
-		float projectileSpeed = m_eProjectile.GetPhysics().GetVelocity().Length();
-		if(projectileSpeed < 1.0)
-			projectileSpeed = 150.0;
-			
-		float distanceToTarget = vector.Distance(targetPos, m_eProjectile.GetOrigin());
-		float timeToHit = distanceToTarget / projectileSpeed;
-		
-		vector targetVel = vector.Zero;
+
+		// Line of Sight check
+		if(!TraceLOS(projPos, centerPos, target))
+		{
+			return targetData;
+		}
+
+		// Lead prediction
+		vector targetVel = Vector(0,0,0);
 		if(target.GetPhysics())
 			targetVel = target.GetPhysics().GetVelocity();
-			
-		vector calculatedLead = targetVel * timeToHit;
 
-		targetData.targetPosition = targetPos + calculatedLead;
-		m_eTargetData = targetData;
-		return m_eTargetData;
-	}
-	
-	protected bool TraceLOS(vector from, vector to)
-	{	
-		if(!target || !m_eProjectile)
-			return false;
+		float projSpeed = vel.Length();
+		if(projSpeed < 10.0)
+			projSpeed = 150.0; // Fallback speed
 			
-		ref array<IEntity> exclude = {m_eProjectile, target, target.GetRootParent() };
-		TraceParam param = new TraceParam;
-		param.Start = from;
-		param.End = to;
-		param.LayerMask = EPhysicsLayerDefs.Projectile;
-		param.Flags = TraceFlags.ANY_CONTACT | TraceFlags.WORLD | TraceFlags.ENTS; 
-		param.ExcludeArray = exclude;
+		float timeToImpact = distToTarget / projSpeed;
+		targetData.targetPosition = centerPos + (targetVel * timeToImpact);
+		
+		return targetData;
+	}
 
-		World world = GetGame().GetWorld();
-		if(!world)
-			return false;
-			
-		float percent = world.TraceMove(param, null);
-		if (percent == 1)
-			return true;
-				
-		return false;
-	}
-	
-	protected bool CheckSeekerAngle(vector seekerPos, vector seekerDirection, vector targetPos)
+	protected bool TraceLOS(vector from, vector to, IEntity target)
 	{
-		vector testDir = vector.Direction(seekerPos, targetPos);
-		if(testDir.Length() < 0.001)
+		if(vector.DistanceSq(from, to) < 0.01)
 			return true;
 			
-		vector testPointVector = testDir.Normalized();
-		vector seekerDir = vector.Zero;
-		if(seekerDirection.Length() > 0.001)
-			seekerDir = seekerDirection.Normalized();
-		else if(m_eProjectile)
-			seekerDir = m_eProjectile.GetYawPitchRoll().AnglesToVector();
-			
-		float testDotProduct = vector.Dot(seekerDir, testPointVector);
-		return testDotProduct > Math.Cos(m_fSeekerFieldOfView * Math.DEG2RAD);
+		m_aExcludeEntities.Clear();
+		m_aExcludeEntities.Insert(m_eProjectile);
+		if(target)
+		{
+			m_aExcludeEntities.Insert(target);
+			if(target.GetRootParent())
+				m_aExcludeEntities.Insert(target.GetRootParent());
+		}
+		
+		m_TraceParam.Start = from;
+		m_TraceParam.End = to;
+		m_TraceParam.Flags = TraceFlags.WORLD | TraceFlags.ENTS;
+		m_TraceParam.ExcludeArray = m_aExcludeEntities;
+		m_TraceParam.LayerMask = EPhysicsLayerDefs.Projectile;
+		
+		float fraction = GetGame().GetWorld().TraceMove(m_TraceParam, null);
+		return (fraction >= 0.98);
 	}
-};
+}

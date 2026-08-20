@@ -1,173 +1,140 @@
-void ScriptInvoker_LockingDataMethod(BGONE_LockingData_BASE lockingData);
-typedef func ScriptInvoker_LockingDataMethod;
-typedef ScriptInvokerBase<ScriptInvoker_LockingDataMethod> ScriptInvoker_LockingDataEntity;
-
 class BGONE_LockingData_BASE
 {
-	vector lockingPos;
-	float lockingProgress;
+	float lockingProgress = 0;
+	ref BGONE_TargetData targetData;
 }
 
 [BaseContainerProps()]
 class BGONE_LockType_Base : ScriptAndConfig
 {
-	protected bool m_bIsLocking = false;
-	protected IEntity m_eLauncher;
-	
-	// Events for notifying the launcher about our lock state, returning the entity we are aquiring / locked
-	protected ref ScriptInvoker_LockingDataEntity m_OnLockStartAquire;
-	protected ref ScriptInvoker_LockingDataEntity m_OnLockAquired;
-	protected ref ScriptInvokerVoid m_OnLockLost;
-	
-	// Need to work out better way to do inheritance / casting so the base methods make sense.
-	protected ref BGONE_TargetData m_cTargetData;
-	protected ref BGONE_LockingData_BASE m_eLockingData;
-	
-	protected float m_fLockDuration;
-	
-	
-	ScriptInvoker_LockingDataEntity GetOnLockStartAquire()
+	protected ref ScriptInvoker m_OnLockStartAcquire = new ScriptInvoker();
+	protected ref ScriptInvoker m_OnLockAcquired = new ScriptInvoker();
+	protected ref ScriptInvoker m_OnLockLost = new ScriptInvoker();
+
+	ScriptInvoker GetOnLockStartAcquire()
 	{
-		if(!m_OnLockStartAquire)
-			m_OnLockStartAquire = new ScriptInvoker_LockingDataEntity();
-		
-		return m_OnLockStartAquire;
+		return m_OnLockStartAcquire;
 	}
-	
-	ScriptInvoker_LockingDataEntity GetOnLockAquired()
+
+	ScriptInvoker GetOnLockAcquired()
 	{
-		if(!m_OnLockAquired)
-			m_OnLockAquired = new ScriptInvoker_LockingDataEntity();
-		
-		return m_OnLockAquired;
+		return m_OnLockAcquired;
 	}
-	
-	ScriptInvokerVoid GetOnLockLost()
+
+	ScriptInvoker GetOnLockLost()
 	{
-		if(!m_OnLockLost)
-			m_OnLockLost = new ScriptInvokerVoid();
-		
 		return m_OnLockLost;
 	}
-	
-	void InitLockType(IEntity launcher)
+
+	// Legacy typo alias support
+	ScriptInvoker GetOnLockStartAquire()
 	{
-		m_eLauncher = launcher;
+		return m_OnLockStartAcquire;
 	}
-	
+
+	ScriptInvoker GetOnLockAquired()
+	{
+		return m_OnLockAcquired;
+	}
+
+	void InitLockType(IEntity owner)
+	{
+	}
+
 	void StartLock()
 	{
-		m_eLockingData = new BGONE_LockingData_BASE();
-		m_eLockingData.lockingProgress = 0;
-		m_bIsLocking = true;
-		m_fLockDuration = 0;
-		return;
 	}
-	BGONE_LockingData_BASE UpdateLock(float timeSlice)
-	{
-		if(!m_bIsLocking)
-			return null;
-		
-		if(timeSlice == 0)
-			return null;
-		
-		m_fLockDuration += timeSlice;
-		
-		return m_eLockingData;
-	}
+
 	void StopLock()
 	{
-		m_bIsLocking = false;
-		return;
 	}
-	
+
+	void UpdateLock(float timeSlice)
+	{
+	}
+
 	BGONE_TargetData GetCurrentTargetData()
 	{
-		return m_cTargetData;
+		return null;
 	}
-	
-	void PlayLockOnAudio(float lockingProgress)
+
+	void PlayLockOnAudio(float currentLockProgress)
 	{
-		return;
 	}
-	void PlayLockOnAuido(float lockingProgress)
-	{
-		PlayLockOnAudio(lockingProgress);
-	}
+
 	void TerminateLockOnAudio()
 	{
-		return;
 	}
-	
-	// Returns the direction where we are looking to aquire a lock.
-	protected array<vector> GetAimDirAndPosOfLauncher(IEntity launcher)
+
+	void PlayLockOnAuido(float currentLockProgress)
 	{
+		PlayLockOnAudio(currentLockProgress);
+	}
+
+	void GetAimDirAndPosOfLauncher(IEntity launcher, out vector aimDir, out vector aimPos)
+	{
+		aimDir = Vector(0,0,1);
+		aimPos = Vector(0,0,0);
+		
 		if(!launcher)
-			return {Vector(0,0,1), Vector(0,0,0)};
-			
-		SCR_2DPIPSightsComponent pipSight = ArmaReforgerScripted.GetCurrentPIPSights();
+			return;
+
 		Turret turret = Turret.Cast(launcher.GetParent());
-		
-		vector mat[4];
-		if(pipSight)
-		{ 
-			SCR_PIPCamera pipCam = pipSight.GetPIPCamera();
-			if(pipCam)
-				pipCam.GetWorldCameraTransform(mat);
-			else
-				launcher.GetWorldTransform(mat);
-		}
-		else if(turret)
+		if(turret)
 		{
-			turret.GetWorldTransform(mat);
-			TurretControllerComponent controller = TurretControllerComponent.Cast(turret.FindComponent(TurretControllerComponent));
-			if(controller)
+			TurretControllerComponent turretComp = TurretControllerComponent.Cast(turret.FindComponent(TurretControllerComponent));
+			if(turretComp)
 			{
-				vector aimDirWorld = controller.GetAimingDirectionWorld();
-				if(aimDirWorld != vector.Zero)
-					mat[2] = aimDirWorld;
+				BaseSightsComponent sights = turretComp.GetCurrentSights();
+				if(sights)
+				{
+					PIPCamera camera = sights.GetPIPCamera();
+					if(camera)
+					{
+						aimDir = camera.GetAimingDirection();
+						aimPos = sights.GetSightsRearPosition();
+						return;
+					}
+					else
+					{
+						aimDir = sights.GetSightsDirectionUntransformed();
+						aimPos = sights.GetSightsRearPosition();
+						return;
+					}
+				}
+				
+				aimDir = turretComp.GetAimingDirectionWorld();
+				aimPos = turret.GetOrigin();
+				return;
 			}
 		}
-		else
+
+		SCR_ChimeraCharacter shooter = SCR_ChimeraCharacter.Cast(launcher.GetRootParent());
+		if(!shooter)
+			return;
+
+		CharacterCameraHandlerComponent cameraHandler = CharacterCameraHandlerComponent.Cast(shooter.FindComponent(CharacterCameraHandlerComponent));
+		if(cameraHandler && cameraHandler.IsCameraAiming())
 		{
-			SCR_ChimeraCharacter shooter = SCR_ChimeraCharacter.Cast(launcher.GetRootParent());
-			CameraManager camMgr = GetGame().GetCameraManager();
-			if(camMgr && camMgr.CurrentCamera())
+			aimDir = cameraHandler.GetCurrentCamera().GetAimingDirection();
+			aimPos = cameraHandler.GetCurrentCamera().GetAimingPosition();
+			return;
+		}
+
+		BaseWeaponManagerComponent weaponManager = BaseWeaponManagerComponent.Cast(shooter.FindComponent(BaseWeaponManagerComponent));
+		if(weaponManager && weaponManager.GetCurrentWeapon())
+		{
+			BaseSightsComponent sights = weaponManager.GetCurrentWeapon().GetSights();
+			if(sights)
 			{
-				camMgr.CurrentCamera().GetWorldTransform(mat);
-			}
-			else if(shooter)
-			{
-				shooter.GetWorldTransform(mat);
-			}
-			else
-			{
-				launcher.GetWorldTransform(mat);
+				aimDir = sights.GetSightsDirectionUntransformed();
+				aimPos = sights.GetSightsRearPosition();
+				return;
 			}
 		}
-		
-		vector aimDir = mat[2];
-		vector aimPos = mat[3];
-		ref array<vector> dirAndPos = {aimDir, aimPos};
-		return dirAndPos;
+
+		aimDir = shooter.EyePosition() - launcher.GetOrigin();
+		aimDir.Normalize();
+		aimPos = shooter.EyePosition();
 	}
-	
-	protected void LockStartAquire(BGONE_LockingData_BASE lockingData) 
-	{
-		if(m_OnLockStartAquire)
-			m_OnLockStartAquire.Invoke(lockingData);
-	}
-	
-	protected void LockAquired(BGONE_LockingData_BASE lockingData) 
-	{
-		if(m_OnLockAquired)
-			m_OnLockAquired.Invoke(lockingData);
-	}
-	
-	protected void LockLost() 
-	{
-		if(m_OnLockLost)
-			m_OnLockLost.Invoke();
-	}
-	
-};
+}

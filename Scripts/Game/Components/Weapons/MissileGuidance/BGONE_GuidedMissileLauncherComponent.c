@@ -1,11 +1,7 @@
-void ScriptInvoker_OwnerChangedMethod(RplIdentity ownerId);
-typedef func ScriptInvoker_OwnerChangedMethod;
-typedef ScriptInvokerBase<ScriptInvoker_OwnerChangedMethod> ScriptInvoker_OwnerChanged;
-
 [ComponentEditorProps(category: "GameScripted/Weapons/BGONE", description: "Guided missile launcher component handling lock lifecycle and firing")]
 class BGONE_GuidedMissileLauncherComponentClass : ScriptGameComponentClass
 {
-};
+}
 
 class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 {
@@ -25,12 +21,11 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	protected TurretControllerComponent m_eTurretController;
 	protected Turret m_eTurret;
 	protected bool locking;
+	protected bool m_bListenersRegistered = false;
 	
 	protected ref BGONE_TargetData m_eLastTargetData;
 	protected BGONE_GuidedMissileComponent m_eLastMissile;
 	protected BGONE_GuidedMissileComponent m_eLastMissileSaclos;
-	
-	protected ref array<ref Shape> m_aDbgCollisionShapes;
 	
 	// Methods for handling ownership change and action context (de)activation.
 	protected override void EOnActivate(IEntity owner)
@@ -42,6 +37,12 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	protected override void EOnDeactivate(IEntity owner)
 	{
 		super.EOnDeactivate(owner);
+		
+		if(m_eLockTypeComponent)
+		{
+			m_eLockTypeComponent.StopLock();
+			m_eLockTypeComponent.TerminateLockOnAudio();
+		}
 		
 		if(m_vehicleEventHandler)
 		{
@@ -216,45 +217,27 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		}
 	}
 	
-	protected void LockStartAquire(BGONE_LockingData_BASE lockingData)
+	protected void LockStartAcquire(BGONE_LockingData_BASE lockingData)
 	{
-		Rpc(RpcAsk_PlayLockonAudio, lockingData.lockingProgress, false);
+		if(m_eLockTypeComponent)
+			m_eLockTypeComponent.PlayLockOnAudio(lockingData.lockingProgress);
 	}
 	
-	protected void LockAquired(BGONE_LockingData_BASE lockingData)
+	protected void LockAcquired(BGONE_LockingData_BASE lockingData)
 	{
-		Rpc(RpcAsk_PlayLockonAudio, lockingData.lockingProgress, false);
+		if(m_eLockTypeComponent)
+			m_eLockTypeComponent.PlayLockOnAudio(lockingData.lockingProgress);
 	}
 	
 	protected void LockLost()
 	{
-		Rpc(RpcAsk_PlayLockonAudio, 0, true);
-	}
-	
-	[RplRpc(RplChannel.Reliable, RplRcver.Server)]
-	void RpcAsk_PlayLockonAudio(float lockingProgress, bool terminate)
-	{
 		if(m_eLockTypeComponent)
-		{
-			if(terminate)
-				m_eLockTypeComponent.TerminateLockOnAudio();
-			else
-				m_eLockTypeComponent.PlayLockOnAudio(lockingProgress);
-		}
-			
-		Rpc(RpcDo_PlayLockonAudio, lockingProgress, terminate);
+			m_eLockTypeComponent.TerminateLockOnAudio();
 	}
 	
-	[RplRpc(RplChannel.Reliable, RplRcver.Owner)]
-	void RpcDo_PlayLockonAudio(float lockingProgress, bool terminate)
+	protected void LockStartAquire(BGONE_LockingData_BASE lockingData)
 	{
-		if(!m_eLockTypeComponent)
-			return;
-			
-		if(terminate)
-			m_eLockTypeComponent.TerminateLockOnAudio();
-		else
-			m_eLockTypeComponent.PlayLockOnAudio(lockingProgress);
+		LockStartAcquire(lockingData);
 	}
 	
 	protected void OnLaunch(int playerID, BaseWeaponComponent weapon, IEntity entity)
@@ -332,6 +315,10 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	[RplRpc(RplChannel.Unreliable, RplRcver.Server)]
 	void RpcAsk_SaclosFix(vector aimDir, vector aimPos)
 	{
+		if(float.IsNaN(aimDir[0]) || float.IsNaN(aimDir[1]) || float.IsNaN(aimDir[2]) ||
+		   float.IsNaN(aimPos[0]) || float.IsNaN(aimPos[1]) || float.IsNaN(aimPos[2]))
+			return;
+			
 		if(m_eLastMissileSaclos)
 		{
 			m_eLastMissileSaclos.UpdateTurretAim(aimDir, aimPos);
@@ -348,7 +335,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		}
 		
 		m_eLastMissileSaclos = m_eLastMissile;
-		m_aDbgCollisionShapes = m_eLastMissile.onLaunched(targetData, this);
+		m_eLastMissile.onLaunched(targetData, this);
 		
 		m_eLastTargetData = null;
 		m_eLastMissile = null;
@@ -356,7 +343,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	
 	protected void RegisterListeners()
 	{
-		if(!m_eCurrentPlayer)
+		if(m_bListenersRegistered || !m_eCurrentPlayer)
 			return;
 			
 		if(!m_eventHandler)
@@ -371,8 +358,8 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		
 		if(m_eLockTypeComponent)
 		{
-			m_eLockTypeComponent.GetOnLockStartAquire().Insert(LockStartAquire);
-			m_eLockTypeComponent.GetOnLockAquired().Insert(LockAquired);
+			m_eLockTypeComponent.GetOnLockStartAcquire().Insert(LockStartAcquire);
+			m_eLockTypeComponent.GetOnLockAcquired().Insert(LockAcquired);
 			m_eLockTypeComponent.GetOnLockLost().Insert(LockLost);
 		}
 		
@@ -383,14 +370,19 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			m_InputManager.AddActionListener("BGONELock", EActionTrigger.DOWN, SetLockingState);
 			m_InputManager.AddActionListener("BGONELock", EActionTrigger.UP, SetLockingState);
 		}
+		
+		m_bListenersRegistered = true;
 	}
 	
 	protected void RemoveListeners()
 	{
+		if(!m_bListenersRegistered)
+			return;
+			
 		if(m_eLockTypeComponent)
 		{
-			m_eLockTypeComponent.GetOnLockStartAquire().Remove(LockStartAquire);
-			m_eLockTypeComponent.GetOnLockAquired().Remove(LockAquired);
+			m_eLockTypeComponent.GetOnLockStartAcquire().Remove(LockStartAcquire);
+			m_eLockTypeComponent.GetOnLockAcquired().Remove(LockAcquired);
 			m_eLockTypeComponent.GetOnLockLost().Remove(LockLost);
 			LockLost();
 		}
@@ -406,6 +398,8 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			m_InputManager.RemoveActionListener("BGONELock", EActionTrigger.DOWN, SetLockingState);
 			m_InputManager.RemoveActionListener("BGONELock", EActionTrigger.UP, SetLockingState);
 		}
+		
+		m_bListenersRegistered = false;
 	}
 	
 	override void OnPostInit(IEntity owner)
@@ -475,4 +469,4 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			return m_eSupportedAttackProfiles[m_iCurrentAttackModeIndex];
 		return null;
 	}
-};
+}
