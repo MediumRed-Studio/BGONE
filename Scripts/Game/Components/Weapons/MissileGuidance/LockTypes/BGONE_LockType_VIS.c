@@ -259,9 +259,9 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 			return lastTarget;
 
 		// Step 2: Conical Multi-Ray Grid Scan
-		for(float xOff = -4.0; xOff <= 4.0; xOff += 0.75)
+		for(float xOff = -4.0; xOff <= 4.0; xOff += 0.5)
 		{
-			for(float yOff = -2.0; yOff <= 2.0; yOff += 0.75)
+			for(float yOff = -2.0; yOff <= 2.0; yOff += 0.5)
 			{
 				vector offsetVector = vector.FromYaw(xOff).VectorToAngles();
 				offsetVector[1] = yOff;
@@ -275,65 +275,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 			}
 		}
 
-		// Step 3: Spatial Dynamic Broadphase Fallback
-		m_aCandidateEntities.Clear();
-		GetGame().GetWorld().QueryEntitiesBySphere(aimFrom, m_iMaxLockOnRange, FilterCandidateEntity, null, EQueryEntitiesFlags.DYNAMIC);
-		
-		IEntity bestTarget = null;
-		float bestScore = -1.0;
-		ref array<IEntity> processedRoots = new array<IEntity>();
-		
-		foreach(IEntity candidate : m_aCandidateEntities)
-		{
-			if(!candidate)
-				continue;
-				
-			IEntity root = candidate.GetRootParent();
-			if(!root)
-				root = candidate;
-				
-			if(root == m_eLauncher || root == m_eLauncher.GetRootParent() || processedRoots.Contains(root))
-				continue;
-				
-			processedRoots.Insert(root);
-				
-			vector candPos = GetAimPoint(root);
-			vector toCand = candPos - aimFrom;
-			float candDist = toCand.Length();
-			if(candDist < m_iMinLockOnRange || candDist > m_iMaxLockOnRange)
-				continue;
-				
-			float dot = Math.Clamp(vector.Dot(currentDir, toCand.Normalized()), -1.0, 1.0);
-			if(dot < 0.90)
-				continue;
-				
-			if(CheckUnitType(root))
-			{
-				if(TraceLOS(aimFrom, candPos, true))
-				{
-					if(dot > bestScore)
-					{
-						bestScore = dot;
-						bestTarget = root;
-					}
-				}
-			}
-		}
-		
-		if(bestTarget)
-		{
-			lastTarget = bestTarget;
-			return bestTarget;
-		}
-
 		return null;
-	}
-
-	protected bool FilterCandidateEntity(IEntity ent)
-	{
-		if(ent && ent != m_eLauncher)
-			m_aCandidateEntities.Insert(ent);
-		return true;
 	}
 
 	protected bool TraceLOS(vector from, vector to, bool excludeLockedTarget = false)
@@ -358,9 +300,6 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		if(m_TraceParam.TraceEnt)
 			CheckUnitType(m_TraceParam.TraceEnt);
 
-		if(percent == 1.0)
-			return true;
-
 		return (lastTarget != null);
 	}
 
@@ -376,25 +315,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		if(root == m_eLauncher || root == m_eLauncher.GetRootParent())
 			return false;
 			
-		if(Vehicle.Cast(root) || Vehicle.Cast(ent))
-		{
-			lastTarget = root;
-			return true;
-		}
-		
-		if(SCR_ChimeraCharacter.Cast(root) || SCR_ChimeraCharacter.Cast(ent) || ChimeraCharacter.Cast(root) || ChimeraCharacter.Cast(ent))
-		{
-			lastTarget = root;
-			return true;
-		}
-		
-		if(root.FindComponent(VehicleControllerComponent) || ent.FindComponent(VehicleControllerComponent))
-		{
-			lastTarget = root;
-			return true;
-		}
-		
-		if(root.FindComponent(CharacterControllerComponent) || ent.FindComponent(CharacterControllerComponent))
+		if(Vehicle.Cast(root) || Vehicle.Cast(ent) || SCR_ChimeraCharacter.Cast(root) || SCR_ChimeraCharacter.Cast(ent))
 		{
 			lastTarget = root;
 			return true;

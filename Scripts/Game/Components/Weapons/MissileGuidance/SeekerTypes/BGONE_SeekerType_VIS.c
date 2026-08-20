@@ -78,13 +78,13 @@ class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 		if(distToTarget < 0.001)
 			return targetData;
 
-		// FOV validation
+		// FOV validation (evaluated after missile clears launcher at > 0.3s)
 		vector vel = Vector(0,0,1);
 		if(m_eProjectile.GetPhysics())
 			vel = m_eProjectile.GetPhysics().GetVelocity();
 			
 		bool angleOk = true;
-		if(vel.Length() > 0.01)
+		if(flightTime > 0.3 && vel.Length() > 10.0)
 		{
 			float dot = Math.Clamp(vector.Dot(vel.Normalized(), toTarget.Normalized()), -1.0, 1.0);
 			float angle = Math.Acos(dot) * Math.RAD2DEG;
@@ -92,7 +92,11 @@ class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 				angleOk = false;
 		}
 
-		bool losOk = TraceLOS(projPos, centerPos, target);
+		bool losOk = true;
+		if(flightTime > 0.3)
+		{
+			losOk = TraceLOS(projPos, centerPos, target, targetData.GetShooterEntity());
+		}
 
 		if(!angleOk || !losOk)
 		{
@@ -101,7 +105,7 @@ class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 				targetData.detonated = EBGONE_DetonationState.IMPACT;
 				return targetData;
 			}
-			targetData.targetPosition = Vector(0,0,0);
+			targetData.targetPosition = centerPos;
 			return targetData;
 		}
 
@@ -118,13 +122,19 @@ class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 		return targetData;
 	}
 
-	protected bool TraceLOS(vector from, vector to, IEntity target)
+	protected bool TraceLOS(vector from, vector to, IEntity target, IEntity shooter = null)
 	{
 		if(vector.DistanceSq(from, to) < 0.01)
 			return true;
 			
 		m_aExcludeEntities.Clear();
 		m_aExcludeEntities.Insert(m_eProjectile);
+		if(shooter)
+		{
+			m_aExcludeEntities.Insert(shooter);
+			if(shooter.GetRootParent())
+				m_aExcludeEntities.Insert(shooter.GetRootParent());
+		}
 		if(target)
 		{
 			m_aExcludeEntities.Insert(target);
