@@ -29,9 +29,9 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	
 	protected ref array<ref Shape> m_aDbgCollisionShapes;
 	
-	override void InitLockType(IEntity launcher)
+	override void InitLockType(IEntity owner)
 	{
-		super.InitLockType(launcher);
+		super.InitLockType(owner);
 		if(!m_eSoundComponent && m_eLauncher)
 			m_eSoundComponent = WeaponSoundComponent.Cast(m_eLauncher.FindComponent(WeaponSoundComponent));
 		
@@ -446,45 +446,5 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 			boundsMax[0] = maxX;
 			boundsMax[1] = maxY;
 		}
-	}
-
-	override void PlayLockOnAudio(float currentLockProgress)
-	{
-		if(!m_eSoundComponent && m_eLauncher)
-		{
-			m_eSoundComponent = SoundComponent.Cast(m_eLauncher.FindComponent(SoundComponent));
-			if(!m_eSoundComponent && m_eLauncher.GetRootParent())
-				m_eSoundComponent = SoundComponent.Cast(m_eLauncher.GetRootParent().FindComponent(SoundComponent));
-		}
-
-		if(!m_eSoundComponent)
-			return;
-
-		m_eSoundComponent.SetSignalValueStr("LockingState", currentLockProgress * 100.0);
-
-		if(m_eLockAudioHandle == AudioHandle.Invalid)
-		{
-			m_eLockAudioHandle = m_eSoundComponent.SoundEvent("SOUND_LOCKON_DEFAULT");
-		}
-	}
-
-	override void TerminateLockOnAudio()
-	{
-		if(m_eSoundComponent)
-		{
-			m_eSoundComponent.SetSignalValueStr("LockingState", 0.0);
-			if(m_eLockAudioHandle != AudioHandle.Invalid)
-			{
-				m_eSoundComponent.Terminate(m_eLockAudioHandle);
-				m_eLockAudioHandle = AudioHandle.Invalid;
-			}
-		}
-	}
-
-	override BGONE_TargetData GetCurrentTargetData()
-	{
-		if(!m_bKeepLockAfterFired)
-			GetGame().GetCallqueue().CallLater(StopLock, 10, false);
-		return m_cTargetDataVIS;
 	}
 }

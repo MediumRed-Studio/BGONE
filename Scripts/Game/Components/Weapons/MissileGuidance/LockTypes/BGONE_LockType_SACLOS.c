@@ -1,12 +1,11 @@
 [BaseContainerProps()]
 class BGONE_LockType_SACLOS : BGONE_LockType_Base
 {
-	protected IEntity m_eLauncher;
 	protected ref BGONE_TargetData m_cTargetDataSACLOS;
 	
 	override void InitLockType(IEntity owner)
 	{
-		m_eLauncher = owner;
+		super.InitLockType(owner);
 	}
 	
 	override BGONE_TargetData GetCurrentTargetData() 

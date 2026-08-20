@@ -7,16 +7,15 @@ class BGONE_LockType_PLOS : BGONE_LockType_Base
 	protected float m_aLastYawPitch[2] = {0, 0};
 	protected ref BGONE_TargetData m_cTargetDataPLOS;
 	protected bool m_bInitialLockComputed = false;
-	protected IEntity m_eLauncher;
-	protected float m_fLockDuration = 0;
 	
 	override void InitLockType(IEntity owner)
 	{
-		m_eLauncher = owner;
+		super.InitLockType(owner);
 	}
 	
 	override void StartLock()
 	{
+		super.StartLock();
 		GetGame().GetCallqueue().Remove(LockLost);
 		
 		vector currentDir, aimPos;
@@ -31,10 +30,11 @@ class BGONE_LockType_PLOS : BGONE_LockType_Base
 		m_fLockDuration = 0;
 	}
 	
-	override void UpdateLock(float timeSlice)
+	override BGONE_LockingData_BASE UpdateLock(float timeSlice)
 	{
-		m_fLockDuration += timeSlice;
-		
+		if(!super.UpdateLock(timeSlice))
+			return null;
+			
 		vector currentDir, aimPos;
 		GetAimDirAndPosOfLauncher(m_eLauncher, currentDir, aimPos);
 		
@@ -48,7 +48,7 @@ class BGONE_LockType_PLOS : BGONE_LockType_Base
 		float currentPitch = angles[1];
 		
 		if(m_fLockDuration < 0.75)
-			return;
+			return m_eLockingData;
 		
 		if(!m_bInitialLockComputed)
 		{
@@ -72,6 +72,8 @@ class BGONE_LockType_PLOS : BGONE_LockType_Base
 		// Limit the change passed on
 		m_cTargetDataPLOS.yawChange = Math.Clamp(m_cTargetDataPLOS.yawChange, -m_fMaxAngularChangeDetection, m_fMaxAngularChangeDetection);
 		m_cTargetDataPLOS.pitchChange = Math.Clamp(m_cTargetDataPLOS.pitchChange, -m_fMaxAngularChangeDetection, m_fMaxAngularChangeDetection);	
+		
+		return m_eLockingData;
 	}
 	
 	override BGONE_TargetData GetCurrentTargetData() 
