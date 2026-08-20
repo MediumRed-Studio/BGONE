@@ -79,6 +79,8 @@ class BGONE_LockType_Base : ScriptAndConfig
 		if(!launcher)
 			return;
 
+		aimPos = launcher.GetOrigin();
+
 		Turret turret = Turret.Cast(launcher.GetParent());
 		if(turret)
 		{
@@ -86,14 +88,12 @@ class BGONE_LockType_Base : ScriptAndConfig
 			if(turretComp)
 			{
 				aimDir = turretComp.GetAimingDirectionWorld();
-				aimPos = turret.GetOrigin();
 				return;
 			}
 			
 			vector mat[4];
 			turret.GetWorldTransform(mat);
 			aimDir = mat[2];
-			aimPos = turret.GetOrigin();
 			return;
 		}
 
@@ -104,19 +104,12 @@ class BGONE_LockType_Base : ScriptAndConfig
 			if(headAim)
 			{
 				aimDir = headAim.GetAimingDirectionWorld();
-				aimPos = shooter.EyePosition();
 				return;
 			}
-			
-			aimDir = shooter.EyePosition() - launcher.GetOrigin();
-			aimDir.Normalize();
-			aimPos = shooter.EyePosition();
-			return;
 		}
 
 		vector lmat[4];
 		launcher.GetWorldTransform(lmat);
 		aimDir = lmat[2];
-		aimPos = launcher.GetOrigin();
 	}
 }
