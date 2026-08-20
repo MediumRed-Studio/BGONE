@@ -19,14 +19,16 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	[Attribute("0", UIWidgets.ComboBox, "Units launcher can lock onto (empty = ALL)", "", ParamEnumArray.FromEnum(EEditableEntityType) )]
 	protected ref array<EEditableEntityType> m_eUnitTypesToLock;
 
-	protected IEntity m_eLauncher;
-	protected ref BGONE_TargetData m_eTargetData;
-	protected float m_fCurrentLockProgress = 0;
-	protected float m_fCurrentLockDuration = 0;
-	protected float m_fCurrentLockLossDuration = 0;
+	[Attribute("0", UIWidgets.CheckBox, "Maintain Lock After Launching A Missile", category: "BGONE")]
+	protected bool m_bKeepLockAfterFired;
 
+	protected IEntity m_eLauncher;
+	protected ref BGONE_TargetData m_cTargetDataVIS;
+	
 	protected float m_fNextScanTime = 0;
 	protected float m_fScanInterval = 50.0; // 50ms (20 Hz)
+	protected IEntity lastTarget;
+	protected IEntity lockingTarget;
 	
 	protected Widget m_wDisplay;
 	protected Widget m_wTL;
@@ -37,48 +39,54 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	
 	protected AudioHandle m_eLockAudioHandle = AudioHandle.Invalid;
 	protected SoundComponent m_eSoundComponent;
-	protected bool m_bLockEventFired = false;
 	
 	protected ref TraceParam m_TraceParam;
 	protected ref array<IEntity> m_aExcludeEntities;
 	protected ref array<IEntity> m_aCandidateEntities;
-	protected ref BGONE_LockingData_BASE m_LockingData;
 	
-	override void InitLockType(IEntity owner)
+	override void InitLockType(IEntity launcher)
 	{
-		m_eLauncher = owner;
+		super.InitLockType(launcher);
+		m_eLauncher = launcher;
 		m_TraceParam = new TraceParam();
 		m_aExcludeEntities = new array<IEntity>();
 		m_aCandidateEntities = new array<IEntity>();
-		m_LockingData = new BGONE_LockingData_BASE();
+		m_eLockingData = new BGONE_LockingData_BASE();
+		
+		if(!m_eSoundComponent && m_eLauncher)
+		{
+			m_eSoundComponent = SoundComponent.Cast(m_eLauncher.FindComponent(SoundComponent));
+			if(!m_eSoundComponent && m_eLauncher.GetRootParent())
+				m_eSoundComponent = SoundComponent.Cast(m_eLauncher.GetRootParent().FindComponent(SoundComponent));
+		}
 	}
 
 	override void StartLock()
 	{
 		super.StartLock();
 		
+		m_cTargetDataVIS = new BGONE_TargetData();
+		lastTarget = null;
+		lockingTarget = null;
+		
 		if(!m_wDisplay && !m_sLockOnLayout.IsEmpty())
 		{
 			ArmaReforgerScripted game = GetGame();
-			if(game)
+			if(game && game.GetWorkspace())
 			{
-				WorkspaceWidget workspace = game.GetWorkspace();
-				if(workspace)
+				m_wDisplay = game.GetWorkspace().CreateWidgets(m_sLockOnLayout);
+				if(m_wDisplay)
 				{
-					m_wDisplay = workspace.CreateWidgets(m_sLockOnLayout);
-					if(m_wDisplay)
-					{
-						m_wTL = m_wDisplay.FindAnyWidget("TL");
-						m_wTR = m_wDisplay.FindAnyWidget("TR");
-						m_wBL = m_wDisplay.FindAnyWidget("BL");
-						m_wBR = m_wDisplay.FindAnyWidget("BR");
-						m_wCross = SizeLayoutWidget.Cast(m_wDisplay.FindAnyWidget("Cross"));
+					m_wTL = m_wDisplay.FindAnyWidget("TL");
+					m_wTR = m_wDisplay.FindAnyWidget("TR");
+					m_wBL = m_wDisplay.FindAnyWidget("BL");
+					m_wBR = m_wDisplay.FindAnyWidget("BR");
+					m_wCross = SizeLayoutWidget.Cast(m_wDisplay.FindAnyWidget("Cross"));
+					
+					if(m_wCross)
+						m_wCross.SetVisible(false);
 						
-						if(m_wCross)
-							m_wCross.SetVisible(false);
-							
-						m_wDisplay.SetColorInt(Color.GRAY);
-					}
+					m_wDisplay.SetColorInt(Color.GRAY);
 				}
 			}
 		}
@@ -87,25 +95,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	override void StopLock()
 	{
 		super.StopLock();
-		
-		m_fCurrentLockProgress = 0;
-		m_fCurrentLockDuration = 0;
-		m_fCurrentLockLossDuration = 0;
-		m_eTargetData = null;
-		m_bLockEventFired = false;
-		
-		TerminateLockOnAudio();
-		
-		if(m_wDisplay)
-		{
-			m_wDisplay.RemoveFromHierarchy();
-			m_wDisplay = null;
-			m_wTL = null;
-			m_wTR = null;
-			m_wBL = null;
-			m_wBR = null;
-			m_wCross = null;
-		}
+		LockLost();
 	}
 
 	override void UpdateLock(float timeSlice)
@@ -116,82 +106,90 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		if(!m_wDisplay)
 			StartLock();
 			
+		lockingTarget = null;
 		float currentTime = GetGame().GetWorld().GetWorldTime();
 		if(currentTime > m_fNextScanTime)
 		{
 			m_fNextScanTime = currentTime + m_fScanInterval;
-			BGONE_TargetData scannedData = ScanForTarget();
-			
-			if(scannedData && m_eTargetData)
-			{
-				if(scannedData.targetRplId != m_eTargetData.targetRplId)
-				{
-					m_fCurrentLockProgress = 0;
-					m_fCurrentLockDuration = 0;
-					m_bLockEventFired = false;
-					TerminateLockOnAudio();
-				}
-			}
-			m_eTargetData = scannedData;
-		}
-		
-		if(m_eTargetData && m_eTargetData.GetTargetEntity())
-		{
-			m_fCurrentLockLossDuration = 0;
-			m_fCurrentLockDuration += timeSlice;
-			m_fCurrentLockProgress = Math.Clamp(m_fCurrentLockDuration / Math.Max(m_fLockAcquiringDuration, 0.05), 0.0, 1.0);
-			
-			if(!m_LockingData)
-				m_LockingData = new BGONE_LockingData_BASE();
-				
-			m_LockingData.lockingProgress = m_fCurrentLockProgress * 100.0;
-			m_LockingData.targetData = m_eTargetData;
-			
-			PlayLockOnAudio(m_fCurrentLockProgress);
-			
-			if(m_fCurrentLockProgress >= 1.0)
-			{
-				if(!m_bLockEventFired)
-				{
-					m_bLockEventFired = true;
-					if(m_OnLockAcquired)
-						m_OnLockAcquired.Invoke(m_LockingData);
-				}
-			}
-			else
-			{
-				m_bLockEventFired = false;
-				if(m_OnLockStartAcquire)
-					m_OnLockStartAcquire.Invoke(m_LockingData);
-			}
+			lockingTarget = ScanForTarget();
 		}
 		else
 		{
-			TerminateLockOnAudio();
-			if(m_bLockEventFired || m_fCurrentLockProgress > 0)
+			lockingTarget = lastTarget;
+		}
+		
+		// Lost target or none found
+		if(!lockingTarget)
+		{
+			if(lastTarget)
+				LockLost();
+		}
+		else
+		{
+			// Still locking same target
+			if(lockingTarget == lastTarget)
 			{
-				m_fCurrentLockLossDuration += timeSlice;
-				if(m_fCurrentLockLossDuration >= m_fLockLossDuration)
+				m_eLockingData.lockingProgress = Math.Clamp(m_eLockingData.lockingProgress + (timeSlice / Math.Max(m_fLockAcquiringDuration, 0.05)) * 100.0, 0.0, 100.0);
+				m_eLockingData.lockingPos = GetAimPoint(lockingTarget);
+				
+				PlayLockOnAudio(m_eLockingData.lockingProgress / 100.0);
+				
+				if(m_eLockingData.lockingProgress >= 100.0 && (!m_cTargetDataVIS || m_cTargetDataVIS.targetRplId == 0))
 				{
-					if(m_OnLockLost)
-						m_OnLockLost.Invoke();
+					RplComponent rpl = RplComponent.Cast(lockingTarget.FindComponent(RplComponent));
+					if(!m_cTargetDataVIS)
+						m_cTargetDataVIS = new BGONE_TargetData();
 						
-					m_fCurrentLockProgress = 0;
-					m_fCurrentLockDuration = 0;
-					m_fCurrentLockLossDuration = 0;
-					m_bLockEventFired = false;
-					m_eTargetData = null;
+					if(rpl)
+						m_cTargetDataVIS.targetRplId = rpl.Id();
+						
+					m_eLockingData.targetData = m_cTargetDataVIS;
+					LockAquired(m_eLockingData);
 				}
 			}
-			else
+			
+			// Locking new target
+			if(lastTarget != lockingTarget)
 			{
-				m_fCurrentLockProgress = 0;
-				m_fCurrentLockDuration = 0;
-				m_eTargetData = null;
+				m_eLockingData.lockingProgress = 0;
+				m_eLockingData.lockingPos = GetAimPoint(lockingTarget);
+				m_cTargetDataVIS = new BGONE_TargetData();
+				m_eLockingData.targetData = m_cTargetDataVIS;
+				LockStartAquire(m_eLockingData);
 			}
 		}
 		
+		lastTarget = lockingTarget;
 		DisplayOrUpdateLockonWidget();
+	}
+
+	protected override void LockLost()
+	{
+		lockingTarget = null;
+		lastTarget = null;
+		
+		if(m_eLockingData)
+		{
+			m_eLockingData.lockingPos = Vector(0,0,0);
+			m_eLockingData.lockingProgress = 0;
+			m_eLockingData.targetData = null;
+		}
+		
+		m_cTargetDataVIS = new BGONE_TargetData();
+		TerminateLockOnAudio();
+		
+		if(!m_bIsLocking && m_wDisplay)
+		{
+			m_wDisplay.RemoveFromHierarchy();
+			m_wDisplay = null;
+			m_wTL = null;
+			m_wTR = null;
+			m_wBL = null;
+			m_wBR = null;
+			m_wCross = null;
+		}
+		
+		super.LockLost();
 	}
 
 	protected vector GetAimPoint(IEntity target)
@@ -206,76 +204,70 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		return target.GetOrigin() + Vector(0, 1, 0);
 	}
 
-	protected BGONE_TargetData ScanForTarget()
+	protected IEntity ScanForTarget()
 	{
-		vector aimDir, aimPos;
-		GetAimDirAndPosOfLauncher(m_eLauncher, aimDir, aimPos);
+		vector currentDir, aimFrom;
+		GetAimDirAndPosOfLauncher(m_eLauncher, currentDir, aimFrom);
 		
-		IEntity currentLockedEnt = null;
-		if(m_eTargetData)
-			currentLockedEnt = m_eTargetData.GetTargetEntity();
-
-		// If current target is still in cone and has LOS, verify it
-		if(currentLockedEnt)
+		if(lastTarget)
 		{
-			vector currentAimPoint = GetAimPoint(currentLockedEnt);
-			vector toCurrent = currentAimPoint - aimPos;
-			float currentDist = toCurrent.Length();
-			if(currentDist >= m_iMinLockOnRange && currentDist <= m_iMaxLockOnRange)
+			IEntity currentTarget = lastTarget;
+			vector aimTo = GetAimPoint(currentTarget);
+			vector toTarget = aimTo - aimFrom;
+			float dist = toTarget.Length();
+			
+			if(dist > m_iMaxLockOnRange || dist < m_iMinLockOnRange)
+				return null;
+				
+			float dot = Math.Clamp(vector.Dot(currentDir, toTarget.Normalized()), -1.0, 1.0);
+			if(Math.Acos(dot) > 0.45) // ~26 degree cone
+				return null;
+				
+			float relAngle = toTarget.ToYaw();
+			
+			for(float xOff = -2.5; xOff <= 2.5; xOff += 0.5)
 			{
-				float dot = Math.Clamp(vector.Dot(aimDir, toCurrent.Normalized()), -1.0, 1.0);
-				if(dot >= 0.90) // ~25 degree cone
+				for(float yOff = -1.0; yOff <= 2.0; yOff += 0.5)
 				{
-					if(TraceLOS(aimPos, currentAimPoint, currentLockedEnt))
-					{
-						// Target is valid and tracked
-					}
+					vector testPos = currentTarget.CoordToParent(Vector(xOff * -Math.Cos(relAngle), yOff, xOff * Math.Sin(relAngle)));
+					lastTarget = null;
+					TraceLOS(aimFrom, testPos);
+					if(lastTarget)
+						return lastTarget;
 				}
 			}
+			return null;
 		}
 
-		// Step 1: Direct Center-Aim Raycast (exact crosshair hit)
-		IEntity directHit = TraceRay(aimPos, aimPos + (aimDir * (float)m_iMaxLockOnRange));
-		if(directHit)
-		{
-			if(currentLockedEnt == directHit)
-				return m_eTargetData;
-				
-			BGONE_TargetData directData = new BGONE_TargetData();
-			RplComponent directRpl = RplComponent.Cast(directHit.FindComponent(RplComponent));
-			if(directRpl)
-				directData.targetRplId = directRpl.Id();
-			return directData;
-		}
+		// Step 1: Direct Center-Aim Raycast
+		vector centerAimTo = aimFrom + currentDir * (float)m_iMaxLockOnRange;
+		lastTarget = null;
+		TraceLOS(aimFrom, centerAimTo);
+		if(!lastTarget)
+			TraceLOS(aimFrom, centerAimTo);
+		if(lastTarget)
+			return lastTarget;
 
-		// Step 2: Radial conical raycast scan expanding outward from center
-		float offsetsX[16] = {-0.5, 0.5, 0, 0, -1.0, 1.0, 0, 0, -2.0, 2.0, -2.0, 2.0, -3.5, 3.5, -3.5, 3.5};
-		float offsetsY[16] = {0, 0, -0.5, 0.5, 0, 0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, -1.5, -1.5, 1.5, 1.5};
-		
-		for(int i = 0; i < 16; i++)
+		// Step 2: Conical Multi-Ray Grid Scan
+		for(float xOff = -4.0; xOff <= 4.0; xOff += 0.75)
 		{
-			vector offsetAngles = vector.FromYaw(offsetsX[i]).VectorToAngles();
-			offsetAngles[1] = offsetsY[i];
-			vector rayDir = (aimDir.VectorToAngles() + offsetAngles).AnglesToVector();
-			vector rayEnd = aimPos + (rayDir * (float)m_iMaxLockOnRange);
-			
-			IEntity hit = TraceRay(aimPos, rayEnd);
-			if(hit)
+			for(float yOff = -2.0; yOff <= 2.0; yOff += 0.75)
 			{
-				if(currentLockedEnt == hit)
-					return m_eTargetData;
-					
-				BGONE_TargetData scanData = new BGONE_TargetData();
-				RplComponent hitRpl = RplComponent.Cast(hit.FindComponent(RplComponent));
-				if(hitRpl)
-					scanData.targetRplId = hitRpl.Id();
-				return scanData;
+				vector offsetVector = vector.FromYaw(xOff).VectorToAngles();
+				offsetVector[1] = yOff;
+				vector aimDir = (currentDir.VectorToAngles() + offsetVector).AnglesToVector();
+				vector testPos = aimFrom + aimDir * (float)m_iMaxLockOnRange;
+				
+				lastTarget = null;
+				TraceLOS(aimFrom, testPos);
+				if(lastTarget)
+					return lastTarget;
 			}
 		}
 
-		// Step 3: Spatial Broadphase Query Fallback
+		// Step 3: Spatial Dynamic Broadphase Fallback
 		m_aCandidateEntities.Clear();
-		GetGame().GetWorld().QueryEntitiesBySphere(aimPos, m_iMaxLockOnRange, FilterCandidateEntity, null, EQueryEntitiesFlags.DYNAMIC);
+		GetGame().GetWorld().QueryEntitiesBySphere(aimFrom, m_iMaxLockOnRange, FilterCandidateEntity, null, EQueryEntitiesFlags.DYNAMIC);
 		
 		IEntity bestTarget = null;
 		float bestScore = -1.0;
@@ -296,26 +288,22 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 			processedRoots.Insert(root);
 				
 			vector candPos = GetAimPoint(root);
-			vector toCand = candPos - aimPos;
+			vector toCand = candPos - aimFrom;
 			float candDist = toCand.Length();
 			if(candDist < m_iMinLockOnRange || candDist > m_iMaxLockOnRange)
 				continue;
 				
-			float dot = Math.Clamp(vector.Dot(aimDir, toCand.Normalized()), -1.0, 1.0);
-			if(dot < 0.90) // Within ~25 degrees of center
+			float dot = Math.Clamp(vector.Dot(currentDir, toCand.Normalized()), -1.0, 1.0);
+			if(dot < 0.90)
 				continue;
 				
 			if(CheckUnitType(root))
 			{
-				if(TraceLOS(aimPos, candPos, root))
+				if(TraceLOS(aimFrom, candPos, true))
 				{
-					float score = dot;
-					if(root == currentLockedEnt)
-						score += 0.02;
-						
-					if(score > bestScore)
+					if(dot > bestScore)
 					{
-						bestScore = score;
+						bestScore = dot;
 						bestTarget = root;
 					}
 				}
@@ -324,14 +312,8 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		
 		if(bestTarget)
 		{
-			if(currentLockedEnt == bestTarget)
-				return m_eTargetData;
-				
-			BGONE_TargetData data = new BGONE_TargetData();
-			RplComponent rpl = RplComponent.Cast(bestTarget.FindComponent(RplComponent));
-			if(rpl)
-				data.targetRplId = rpl.Id();
-			return data;
+			lastTarget = bestTarget;
+			return bestTarget;
 		}
 
 		return null;
@@ -344,34 +326,32 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		return true;
 	}
 
-	protected IEntity TraceRay(vector from, vector to)
+	protected bool TraceLOS(vector from, vector to, bool excludeLockedTarget = false)
 	{
+		m_aExcludeEntities.Clear();
+		if(m_eLauncher.GetRootParent())
+			m_aExcludeEntities.Insert(m_eLauncher.GetRootParent());
+		else if(m_eLauncher)
+			m_aExcludeEntities.Insert(m_eLauncher);
+			
+		if(excludeLockedTarget && lockingTarget)
+			m_aExcludeEntities.Insert(lockingTarget);
+
 		m_TraceParam.Start = from;
 		m_TraceParam.End = to;
 		m_TraceParam.Flags = TraceFlags.ANY_CONTACT | TraceFlags.WORLD | TraceFlags.ENTS;
-		m_aExcludeEntities.Clear();
-		m_aExcludeEntities.Insert(m_eLauncher);
-		if(m_eLauncher.GetRootParent())
-			m_aExcludeEntities.Insert(m_eLauncher.GetRootParent());
 		m_TraceParam.ExcludeArray = m_aExcludeEntities;
 		m_TraceParam.LayerMask = EPhysicsLayerDefs.Projectile;
-		
-		GetGame().GetWorld().TraceMove(m_TraceParam, null);
+
+		float percent = GetGame().GetWorld().TraceMove(m_TraceParam, null);
+
 		if(m_TraceParam.TraceEnt)
-		{
-			IEntity root = m_TraceParam.TraceEnt.GetRootParent();
-			if(!root)
-				root = m_TraceParam.TraceEnt;
-				
-			if(root != m_eLauncher && root != m_eLauncher.GetRootParent() && CheckUnitType(root))
-			{
-				vector targetPoint = GetAimPoint(root);
-				float dist = vector.Distance(from, targetPoint);
-				if(dist >= m_iMinLockOnRange && dist <= m_iMaxLockOnRange)
-					return root;
-			}
-		}
-		return null;
+			CheckUnitType(m_TraceParam.TraceEnt);
+
+		if(percent == 1.0)
+			return true;
+
+		return (lastTarget != null);
 	}
 
 	protected bool CheckUnitType(IEntity ent)
@@ -387,100 +367,90 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 			return false;
 			
 		if(Vehicle.Cast(root) || Vehicle.Cast(ent))
+		{
+			lastTarget = root;
 			return true;
-			
+		}
+		
 		if(SCR_ChimeraCharacter.Cast(root) || SCR_ChimeraCharacter.Cast(ent) || ChimeraCharacter.Cast(root) || ChimeraCharacter.Cast(ent))
+		{
+			lastTarget = root;
 			return true;
-			
+		}
+		
 		if(root.FindComponent(VehicleControllerComponent) || ent.FindComponent(VehicleControllerComponent))
+		{
+			lastTarget = root;
 			return true;
-			
+		}
+		
 		if(root.FindComponent(CharacterControllerComponent) || ent.FindComponent(CharacterControllerComponent))
-			return true;
-			
-		SCR_EditableEntityComponent editable = SCR_EditableEntityComponent.Cast(root.FindComponent(SCR_EditableEntityComponent));
-		if(!editable)
-			editable = SCR_EditableEntityComponent.Cast(ent.FindComponent(SCR_EditableEntityComponent));
-			
-		if(editable)
 		{
-			EEditableEntityType entityType = editable.GetEntityType();
-			if(entityType == EEditableEntityType.VEHICLE || entityType == EEditableEntityType.CHARACTER)
-				return true;
+			lastTarget = root;
+			return true;
 		}
+		
+		PerceivableComponent perceivable = PerceivableComponent.Cast(root.FindComponent(PerceivableComponent));
+		if(!perceivable)
+			perceivable = PerceivableComponent.Cast(ent.FindComponent(PerceivableComponent));
 			
+		if(perceivable)
+		{
+			lastTarget = root;
+			return true;
+		}
+		
 		return false;
-	}
-
-	protected bool TraceLOS(vector from, vector to, IEntity targetEntity)
-	{
-		if(vector.DistanceSq(from, to) < 0.01)
-			return true;
-			
-		m_aExcludeEntities.Clear();
-		m_aExcludeEntities.Insert(m_eLauncher);
-		if(m_eLauncher.GetRootParent())
-			m_aExcludeEntities.Insert(m_eLauncher.GetRootParent());
-		if(targetEntity)
-		{
-			m_aExcludeEntities.Insert(targetEntity);
-			if(targetEntity.GetRootParent())
-				m_aExcludeEntities.Insert(targetEntity.GetRootParent());
-		}
-		
-		m_TraceParam.Start = from;
-		m_TraceParam.End = to;
-		m_TraceParam.Flags = TraceFlags.ANY_CONTACT | TraceFlags.WORLD | TraceFlags.ENTS;
-		m_TraceParam.ExcludeArray = m_aExcludeEntities;
-		m_TraceParam.LayerMask = EPhysicsLayerDefs.Projectile;
-		
-		float fraction = GetGame().GetWorld().TraceMove(m_TraceParam, null);
-		return (fraction >= 0.98);
 	}
 
 	protected void DisplayOrUpdateLockonWidget()
 	{
 		if(!m_wDisplay)
-			return;
+			m_wDisplay = GetGame().GetWorkspace().CreateWidgets(m_sLockOnLayout);
 			
-		WorkspaceWidget workspace = GetGame().GetWorkspace();
-		if(!workspace)
+		if(!m_wDisplay)
 			return;
-			
-		IEntity lockingTarget = null;
-		if(m_eTargetData)
-			lockingTarget = m_eTargetData.GetTargetEntity();
+
+		Widget gateTL = m_wDisplay.FindAnyWidget("TL");
+		Widget gateTR = m_wDisplay.FindAnyWidget("TR");
+		Widget gateBL = m_wDisplay.FindAnyWidget("BL");
+		Widget gateBR = m_wDisplay.FindAnyWidget("BR");
+		SizeLayoutWidget lockCross = SizeLayoutWidget.Cast(m_wDisplay.FindAnyWidget("Cross"));
+
+		vector margins = Vector(0,0,0);
+		vector offsets = Vector(0,0,0);
+		if(lockingTarget)
+			offsets = lockingTarget.CoordToLocal(GetAimPoint(lockingTarget));
 
 		vector boundsMin = Vector(0,0,0);
 		vector boundsMax = Vector(0,0,0);
-		if(lockingTarget)
-		{
-			vector offsets = lockingTarget.CoordToLocal(GetAimPoint(lockingTarget));
-			WorldToScreenBounds(boundsMin, boundsMax, m_wDisplay, Vector(0,0,0), offsets, lockingTarget);
-		}
+		WorldToScreenBounds(boundsMin, boundsMax, m_wDisplay, margins, offsets);
 
 		vector currentDir, aimFrom;
 		GetAimDirAndPosOfLauncher(m_eLauncher, currentDir, aimFrom);
-		
+
 		vector topLeftOffset = vector.FromYaw(-4.5).VectorToAngles();
 		topLeftOffset[1] = 2;
 		vector bottomRightOffset = vector.FromYaw(4.0).VectorToAngles();
 		bottomRightOffset[1] = -2;
-		
+
 		vector tlPos = aimFrom + (currentDir.VectorToAngles() + topLeftOffset).AnglesToVector() * (float)m_iMaxLockOnRange;
 		vector brPos = aimFrom + (currentDir.VectorToAngles() + bottomRightOffset).AnglesToVector() * (float)m_iMaxLockOnRange;
-		
-		vector tlScreen = workspace.ProjWorldToScreen(tlPos, GetGame().GetWorld());
-		vector brScreen = workspace.ProjWorldToScreen(brPos, GetGame().GetWorld());
-		
+
+		WorkspaceWidget workspace = m_wDisplay.GetWorkspace();
+		BaseWorld world = GetGame().GetWorld();
+
+		vector tlScreen = workspace.ProjWorldToScreen(tlPos, world);
+		vector brScreen = workspace.ProjWorldToScreen(brPos, world);
+
 		float constraintLeft = workspace.DPIUnscale(tlScreen[0]);
 		float constraintTop = workspace.DPIUnscale(tlScreen[1]);
 		float constraintRight = workspace.DPIUnscale(brScreen[0]);
 		float constraintBottom = workspace.DPIUnscale(brScreen[1]);
-		
-		float lerp = Math.Min(m_fCurrentLockProgress / 0.8, 1.0);
+
+		float lerp = Math.Min(m_eLockingData.lockingProgress / 80.0, 1.0);
 		float minX, minY, maxX, maxY;
-		
+
 		if(lerp > 0 && lockingTarget)
 		{
 			minX = Math.Lerp(boundsMin[0] - 500, boundsMin[0], lerp);
@@ -495,61 +465,62 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 			maxX = constraintRight;
 			maxY = constraintBottom;
 		}
-		
-		if(m_wTL) FrameSlot.SetPos(m_wTL, minX, minY);
-		if(m_wTR) FrameSlot.SetPos(m_wTR, maxX, minY);
-		if(m_wBL) FrameSlot.SetPos(m_wBL, minX, maxY);
-		if(m_wBR) FrameSlot.SetPos(m_wBR, maxX, maxY);
 
-		if(m_fCurrentLockProgress >= 1.0 && lockingTarget)
+		if(gateTL) FrameSlot.SetPos(gateTL, minX, minY);
+		if(gateTR) FrameSlot.SetPos(gateTR, maxX, minY);
+		if(gateBL) FrameSlot.SetPos(gateBL, minX, maxY);
+		if(gateBR) FrameSlot.SetPos(gateBR, maxX, maxY);
+
+		if(m_eLockingData.lockingProgress >= 100.0 && lockingTarget)
 		{
 			m_wDisplay.SetColorInt(Color.GREEN);
-			if(m_wCross)
+			if(lockCross)
 			{
-				vector uiPos = workspace.ProjWorldToScreen(GetAimPoint(lockingTarget), GetGame().GetWorld());
+				vector uiPos = workspace.ProjWorldToScreen(m_eLockingData.lockingPos, world);
 				float crossX = workspace.DPIUnscale(uiPos[0]);
 				float crossY = workspace.DPIUnscale(uiPos[1]);
-				
-				m_wCross.SetWidthOverride(46);
-				m_wCross.SetHeightOverride(46);
-				m_wCross.SetColorInt(Color.GRAY);
-				FrameSlot.SetPos(m_wCross, crossX - 23, crossY - 23);
-				m_wCross.SetVisible(true);
+
+				lockCross.SetWidthOverride(46);
+				lockCross.SetHeightOverride(46);
+				lockCross.SetColorInt(Color.GRAY);
+				FrameSlot.SetPos(lockCross, crossX - 23.0, crossY - 23.0);
+				lockCross.SetVisible(true);
 			}
 		}
-		else 
+		else
 		{
 			m_wDisplay.SetColorInt(Color.GRAY);
-			if(m_wCross)
-				m_wCross.SetVisible(false);
+			if(lockCross)
+				lockCross.SetVisible(false);
 		}
 	}
 
-	protected void WorldToScreenBounds(out vector boundsMin, out vector boundsMax, Widget widget, vector margins, vector offsets, IEntity target)
+	protected void WorldToScreenBounds(out vector boundsMin, out vector boundsMax, Widget widget, vector margins, vector offsets)
 	{
-		if(!target || !widget)
+		if(!lockingTarget)
 			return;
-			
+
 		WorkspaceWidget workspace = widget.GetWorkspace();
-		if(!workspace)
+		BaseWorld world = GetGame().GetWorld();
+		if(!workspace || !world)
 			return;
-			
+
 		float minX = 5000;
 		float minY = 5000;
 		float maxX = -5000;
 		float maxY = -5000;
-		
+
 		vector objectBoundsMin, objectBoundsMax;
-		target.GetBounds(objectBoundsMin, objectBoundsMax);
-		
+		lockingTarget.GetBounds(objectBoundsMin, objectBoundsMax);
+
 		float boundsMinX = Math.Min(objectBoundsMin[0] - margins[0], 0) + offsets[0];
 		float boundsMinY = Math.Min(objectBoundsMin[1] - margins[1], 0) + offsets[1];
 		float boundsMinZ = Math.Min(objectBoundsMin[2] - margins[2], 0) + offsets[2];
-		
+
 		float boundsMaxX = Math.Max(objectBoundsMax[0] + margins[0], 0) + offsets[0];
 		float boundsMaxY = Math.Max(objectBoundsMax[1] + margins[1], 0) + offsets[1];
 		float boundsMaxZ = Math.Max(objectBoundsMax[2] + margins[2], 0) + offsets[2];
-		
+
 		vector boundsCorners[8] = {
 		    Vector(boundsMinX, boundsMinY, boundsMinZ),
 		    Vector(boundsMinX, boundsMinY, boundsMaxZ),
@@ -560,26 +531,26 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		    Vector(boundsMaxX, boundsMaxY, boundsMinZ),
 		    Vector(boundsMaxX, boundsMaxY, boundsMaxZ)
 		};
-		
-		foreach(vector corner : boundsCorners) 
+
+		foreach(vector corner : boundsCorners)
 		{
-		    vector screenPos = workspace.ProjWorldToScreen(target.CoordToParent(corner), GetGame().GetWorld());
-		    if (screenPos[2] > 0) 
+		    vector screenPos = workspace.ProjWorldToScreen(lockingTarget.CoordToParent(corner), world);
+		    if(screenPos[2] > 0)
 			{
 				float screenPosX = workspace.DPIUnscale(screenPos[0]);
 				float screenPosY = workspace.DPIUnscale(screenPos[1]);
-				
-		        if (screenPosX < minX)
+
+		        if(screenPosX < minX)
 					minX = screenPosX;
-		        if (screenPosX > maxX)
+		        if(screenPosX > maxX)
 					maxX = screenPosX;
-		        if (screenPosY < minY)
+		        if(screenPosY < minY)
 					minY = screenPosY;
-		        if (screenPosY > maxY)
+		        if(screenPosY > maxY)
 					maxY = screenPosY;
 		    }
 		}
-		
+
 		boundsMin[0] = minX;
 		boundsMin[1] = minY;
 		boundsMax[0] = maxX;
@@ -591,19 +562,15 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		if(!m_eSoundComponent && m_eLauncher)
 		{
 			m_eSoundComponent = SoundComponent.Cast(m_eLauncher.FindComponent(SoundComponent));
-			if(!m_eSoundComponent)
-			{
-				IEntity root = m_eLauncher.GetRootParent();
-				if(root)
-					m_eSoundComponent = SoundComponent.Cast(root.FindComponent(SoundComponent));
-			}
+			if(!m_eSoundComponent && m_eLauncher.GetRootParent())
+				m_eSoundComponent = SoundComponent.Cast(m_eLauncher.GetRootParent().FindComponent(SoundComponent));
 		}
-		
+
 		if(!m_eSoundComponent)
 			return;
-			
+
 		m_eSoundComponent.SetSignalValueStr("LockingState", currentLockProgress * 100.0);
-		
+
 		if(m_eLockAudioHandle == AudioHandle.Invalid)
 		{
 			m_eLockAudioHandle = m_eSoundComponent.SoundEvent("SOUND_LOCKON_DEFAULT");
@@ -625,8 +592,8 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 
 	override BGONE_TargetData GetCurrentTargetData()
 	{
-		if(m_fCurrentLockProgress >= 1.0)
-			return m_eTargetData;
+		if(m_eLockingData && m_eLockingData.lockingProgress >= 100.0)
+			return m_cTargetDataVIS;
 		return null;
 	}
 }
