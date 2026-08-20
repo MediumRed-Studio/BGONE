@@ -131,11 +131,13 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 					if(m_fCurrentLockProgress >= 1.0)
 					{
 						m_bLockEventFired = true;
-						m_OnLockAcquired.Invoke(m_LockingData);
+						if(m_OnLockAcquired)
+							m_OnLockAcquired.Invoke(m_LockingData);
 					}
 					else
 					{
-						m_OnLockStartAcquire.Invoke(m_LockingData);
+						if(m_OnLockStartAcquire)
+							m_OnLockStartAcquire.Invoke(m_LockingData);
 					}
 				}
 			}
@@ -159,7 +161,8 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		{
 			if(m_bLockEventFired || m_fCurrentLockProgress > 0)
 			{
-				m_OnLockLost.Invoke();
+				if(m_OnLockLost)
+					m_OnLockLost.Invoke();
 			}
 			StopLock();
 		}
@@ -193,7 +196,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 
 		// Broadphase: Spatial sphere query for candidate targets
 		m_aCandidateEntities.Clear();
-		GetGame().GetWorld().QueryEntitiesBySphere(aimPos, m_iMaxLockOnRange, FilterCandidateEntity, EQueryEntitiesFlags.DYNAMIC);
+		GetGame().GetWorld().QueryEntitiesBySphere(aimPos, m_iMaxLockOnRange, FilterCandidateEntity, null, EQueryEntitiesFlags.DYNAMIC);
 		
 		IEntity bestTarget = null;
 		float bestScore = -1.0;
