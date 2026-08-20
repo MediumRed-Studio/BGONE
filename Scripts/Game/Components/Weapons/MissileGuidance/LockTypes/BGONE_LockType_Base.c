@@ -82,18 +82,26 @@ class BGONE_LockType_Base : ScriptAndConfig
 		Turret turret = Turret.Cast(launcher.GetParent());
 		if(turret)
 		{
-			aimPos = turret.GetOrigin();
 			TurretComponent turretComp = TurretComponent.Cast(turret.FindComponent(TurretComponent));
 			if(turretComp)
 			{
 				aimDir = turretComp.GetAimingDirectionWorld();
+				aimPos = turret.GetOrigin();
 				return;
 			}
-			
-			vector mat[4];
-			turret.GetWorldTransform(mat);
-			aimDir = mat[2];
-			return;
+		}
+
+		ArmaReforgerScripted game = GetGame();
+		if(game && game.GetWorld())
+		{
+			vector camMat[4];
+			game.GetWorld().GetCurrentCamera(camMat);
+			if(camMat[2] != Vector(0,0,0))
+			{
+				aimDir = camMat[2];
+				aimPos = camMat[3];
+				return;
+			}
 		}
 
 		SCR_ChimeraCharacter shooter = SCR_ChimeraCharacter.Cast(launcher.GetRootParent());
