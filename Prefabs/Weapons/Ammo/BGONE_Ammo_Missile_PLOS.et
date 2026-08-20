@@ -3,9 +3,6 @@ Projectile : "{C0BDA86B5AA5648C}Prefabs/Weapons/Core/Ammo_Rocket_Base.et" {
  components {
   BGONE_GuidedMissileComponent "{61D52845666A1C84}" {
    m_eSeekerTypeComponent BGONE_SeekerType_PLOS "{61D52845666A1C88}" {
-    m_fArmingDistances {
-     20 100
-    }
    }
    m_eAttackProfileComponents {
     BGONE_AttackProfile_PLOS "{61D52845AFE292F3}" {
@@ -14,6 +11,7 @@ Projectile : "{C0BDA86B5AA5648C}Prefabs/Weapons/Core/Ammo_Rocket_Base.et" {
     }
    }
    m_eMissileEngineComponent BGONE_MissileEngine_Base "{61D52845666A1CB2}" {
+    m_fTimeToLive 30
    }
   }
   CollisionTriggerComponent "{61D52845666A1CB0}" {

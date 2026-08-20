@@ -13,8 +13,11 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	protected EventHandlerManagerComponent m_eventHandler;
 	protected EventHandlerManagerComponent m_vehicleEventHandler;
 	protected InputManager m_InputManager;
+	[Attribute("", UIWidgets.Object, desc: "Supported attack profiles for this launcher", category: "BGONE")]
 	protected ref array<ref BGONE_AttackProfile_Base> m_eSupportedAttackProfiles;
 	protected int m_iCurrentAttackModeIndex = 0;
+	
+	[Attribute("20 50 100", UIWidgets.EditBox, desc: "Available arming distances in meters", category: "BGONE")]
 	protected ref array<int> m_aAvailableArmingDistances;
 	protected int m_iCurrentArmingDistanceIndex = 0;
 	protected RplComponent m_RplComponent;
@@ -162,6 +165,30 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		else
 		{
 			Print("BGONE - Guided missile launcher initialized without a LockType component!", LogLevel.WARNING);
+		}
+		
+		if(!m_aAvailableArmingDistances || m_aAvailableArmingDistances.IsEmpty())
+		{
+			m_aAvailableArmingDistances = {20, 50, 100};
+		}
+		
+		if(!m_eSupportedAttackProfiles || m_eSupportedAttackProfiles.IsEmpty())
+		{
+			m_eSupportedAttackProfiles = new array<ref BGONE_AttackProfile_Base>();
+			if(BGONE_LockType_VIS.Cast(m_eLockTypeComponent))
+			{
+				m_eSupportedAttackProfiles.Insert(new BGONE_AttackProfile_DIR());
+				m_eSupportedAttackProfiles.Insert(new BGONE_AttackProfile_TOP());
+			}
+			else if(BGONE_LockType_PLOS.Cast(m_eLockTypeComponent))
+			{
+				m_eSupportedAttackProfiles.Insert(new BGONE_AttackProfile_PLOS());
+				m_eSupportedAttackProfiles.Insert(new BGONE_AttackProfile_PLOS_FLYOVER());
+			}
+			else if(BGONE_LockType_SACLOS.Cast(m_eLockTypeComponent))
+			{
+				m_eSupportedAttackProfiles.Insert(new BGONE_AttackProfile_SACLOS());
+			}
 		}
 		
 		m_InputManager = GetGame().GetInputManager();
