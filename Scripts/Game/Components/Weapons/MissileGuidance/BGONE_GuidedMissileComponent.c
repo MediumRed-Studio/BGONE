@@ -179,14 +179,20 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		Rpc(RpcDo_UpdateAimingDir, aimDir, aimPos);
 	}
 	
+	protected bool IsValidVector(vector v)
+	{
+		if(v[0] != v[0] || v[1] != v[1] || v[2] != v[2])
+			return false;
+		if(Math.AbsFloat(v[0]) > 100000.0 || Math.AbsFloat(v[1]) > 100000.0 || Math.AbsFloat(v[2]) > 100000.0)
+			return false;
+		return true;
+	}
+
 	[RplRpc(RplChannel.Unreliable, RplRcver.Server)]
 	void RpcDo_UpdateAimingDir(vector aimDir, vector aimPos)
 	{
 		// Sanitize inputs against NaN / Infinity
-		if(float.IsNaN(aimDir[0]) || float.IsNaN(aimDir[1]) || float.IsNaN(aimDir[2]) ||
-		   float.IsNaN(aimPos[0]) || float.IsNaN(aimPos[1]) || float.IsNaN(aimPos[2]) ||
-		   float.IsInfinity(aimDir[0]) || float.IsInfinity(aimDir[1]) || float.IsInfinity(aimDir[2]) ||
-		   float.IsInfinity(aimPos[0]) || float.IsInfinity(aimPos[1]) || float.IsInfinity(aimPos[2]))
+		if(!IsValidVector(aimDir) || !IsValidVector(aimPos))
 			return;
 			
 		BGONE_SeekerType_SACLOS seeker = BGONE_SeekerType_SACLOS.Cast(m_eSeekerTypeComponent);

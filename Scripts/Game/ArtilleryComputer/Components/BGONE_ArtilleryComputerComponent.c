@@ -48,7 +48,7 @@ class BGONE_ArtilleryComputerComponent : ScriptGameComponent
 			m_TurretController = TurretControllerComponent.Cast(m_eOwner.FindComponent(TurretControllerComponent));
 		}
 
-		mapEntity.OpenMap();
+		GetGame().GetMenuManager().OpenMenu(ChimeraMenuPreset.MB_ArtilleryComputer);
 		mapEntity.GetOnSelection().Insert(OnMapSelection);
 
 		GetGame().GetCallqueue().CallLater(CenterMapOnVehicle, 100, false);
@@ -89,14 +89,16 @@ class BGONE_ArtilleryComputerComponent : ScriptGameComponent
 
 	protected void OnMapSelection(vector selectedPos)
 	{
-		if (!m_TurretController || !m_eOwner)
+		if (!m_TurretController || !m_eOwner || !m_MapEntity)
 			return;
 
 		vector currentPos = m_eOwner.GetOrigin();
 
-		// ScreenToWorld expects (x, y) screen coords -> worldPos
-		vector targetWorldPos;
-		m_MapEntity.ScreenToWorld(selectedPos[0], selectedPos[1], targetWorldPos);
+		// ScreenToWorld expects (screenPosX, screenPosY, out worldX, out worldZ)
+		float worldX, worldZ;
+		m_MapEntity.ScreenToWorld(selectedPos[0], selectedPos[1], worldX, worldZ);
+		float terrainHeight = GetGame().GetWorld().GetSurfaceY(worldX, worldZ);
+		vector targetWorldPos = Vector(worldX, terrainHeight, worldZ);
 
 		float elevationDifference = targetWorldPos[1] - (currentPos[1] + 1.5);
 		float range = vector.Distance(Vector(currentPos[0], 0, currentPos[2]), Vector(targetWorldPos[0], 0, targetWorldPos[2]));
@@ -125,7 +127,12 @@ class BGONE_ArtilleryComputerComponent : ScriptGameComponent
 		float vehicleYaw = vehicleAngles[0];
 		float localYaw = Math.MapAngle(targetYawWorld - vehicleYaw);
 
-		m_TurretController.SetAimingRotation(Vector(localYaw, pitchAngleDeg, 0));
+		if(m_TurretController.GetOwner())
+		{
+			TurretComponent turretComp = TurretComponent.Cast(m_TurretController.GetOwner().FindComponent(TurretComponent));
+			if(turretComp)
+				turretComp.SetAimingRotationWanted(Vector(localYaw, pitchAngleDeg, 0));
+		}
 
 		m_MapEntity.GetOnSelection().Remove(OnMapSelection);
 		m_MapEntity.CloseMap();
@@ -135,7 +142,7 @@ class BGONE_ArtilleryComputerComponent : ScriptGameComponent
 	{
 		if (m_MapEntity && m_eOwner)
 		{
-			m_MapEntity.PanToWorldPos(m_eOwner.GetOrigin(), 0);
+			m_MapEntity.SetPan(m_eOwner.GetOrigin()[0], m_eOwner.GetOrigin()[2], true, true);
 		}
 	}
 }

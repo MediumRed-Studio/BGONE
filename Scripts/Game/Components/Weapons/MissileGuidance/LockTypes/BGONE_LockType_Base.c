@@ -88,22 +88,14 @@ class BGONE_LockType_Base : ScriptAndConfig
 				BaseSightsComponent sights = turretComp.GetCurrentSights();
 				if(sights)
 				{
-					PIPCamera camera = sights.GetPIPCamera();
-					if(camera)
-					{
-						aimDir = camera.GetAimingDirection();
-						aimPos = sights.GetSightsRearPosition();
-						return;
-					}
-					else
-					{
-						aimDir = sights.GetSightsDirectionUntransformed();
-						aimPos = sights.GetSightsRearPosition();
-						return;
-					}
+					aimDir = sights.GetSightsDirection(false);
+					aimPos = sights.GetSightsRearPosition(false);
+					return;
 				}
 				
-				aimDir = turretComp.GetAimingDirectionWorld();
+				vector mat[4];
+				turret.GetWorldTransform(mat);
+				aimDir = mat[2];
 				aimPos = turret.GetOrigin();
 				return;
 			}
@@ -113,22 +105,14 @@ class BGONE_LockType_Base : ScriptAndConfig
 		if(!shooter)
 			return;
 
-		CharacterCameraHandlerComponent cameraHandler = CharacterCameraHandlerComponent.Cast(shooter.FindComponent(CharacterCameraHandlerComponent));
-		if(cameraHandler && cameraHandler.IsCameraAiming())
-		{
-			aimDir = cameraHandler.GetCurrentCamera().GetAimingDirection();
-			aimPos = cameraHandler.GetCurrentCamera().GetAimingPosition();
-			return;
-		}
-
 		BaseWeaponManagerComponent weaponManager = BaseWeaponManagerComponent.Cast(shooter.FindComponent(BaseWeaponManagerComponent));
 		if(weaponManager && weaponManager.GetCurrentWeapon())
 		{
 			BaseSightsComponent sights = weaponManager.GetCurrentWeapon().GetSights();
 			if(sights)
 			{
-				aimDir = sights.GetSightsDirectionUntransformed();
-				aimPos = sights.GetSightsRearPosition();
+				aimDir = sights.GetSightsDirection(false);
+				aimPos = sights.GetSightsRearPosition(false);
 				return;
 			}
 		}

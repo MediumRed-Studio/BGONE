@@ -16,7 +16,6 @@ class BGONE_VehicleAutoMoveComponent : ScriptGameComponent
 	protected bool m_bMovingForward = true;
 	protected float m_fDistanceTraveled = 0;
 	protected RplComponent m_RplComponent;
-	protected Physics m_Physics;
 	
 	override void OnPostInit(IEntity owner)
 	{
@@ -29,7 +28,6 @@ class BGONE_VehicleAutoMoveComponent : ScriptGameComponent
 		if (m_eOwner)
 		{
 			m_RplComponent = RplComponent.Cast(m_eOwner.FindComponent(RplComponent));
-			m_Physics = m_eOwner.GetPhysics();
 			
 			vector mat[4];
 			m_eOwner.GetWorldTransform(mat);
@@ -45,10 +43,8 @@ class BGONE_VehicleAutoMoveComponent : ScriptGameComponent
 		if (m_RplComponent && !m_RplComponent.IsMaster())
 			return;
 			
-		if (!m_Physics)
-			m_Physics = m_eOwner.GetPhysics();
-			
-		if (!m_Physics)
+		Physics phys = m_eOwner.GetPhysics();
+		if (!phys)
 			return;
 			
 		float step = m_fSpeed * timeSlice;
@@ -64,6 +60,6 @@ class BGONE_VehicleAutoMoveComponent : ScriptGameComponent
 		if (!m_bMovingForward)
 			moveDir = -m_vInitialDir;
 			
-		m_Physics.SetVelocity(moveDir * m_fSpeed);
+		phys.SetVelocity(moveDir * m_fSpeed);
 	}
 }

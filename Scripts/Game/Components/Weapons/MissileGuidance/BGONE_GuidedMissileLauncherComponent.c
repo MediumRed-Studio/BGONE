@@ -279,34 +279,24 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		Rpc(RpcDo_SaclosFix);
 	}
 	
+	protected bool IsValidVector(vector v)
+	{
+		if(v[0] != v[0] || v[1] != v[1] || v[2] != v[2])
+			return false;
+		if(Math.AbsFloat(v[0]) > 100000.0 || Math.AbsFloat(v[1]) > 100000.0 || Math.AbsFloat(v[2]) > 100000.0)
+			return false;
+		return true;
+	}
+
 	[RplRpc(RplChannel.Unreliable, RplRcver.Owner)]
 	void RpcDo_SaclosFix()
 	{
 		vector aimDir = Vector(0,0,1);
 		vector aimPos = Vector(0,0,0);
 		
-		if(m_eTurretController)
+		if(m_eLockTypeComponent)
 		{
-			BaseSightsComponent sights = m_eTurretController.GetCurrentSights();
-			if(sights)
-			{
-				aimDir = sights.GetSightsDirectionUntransformed();
-				aimPos = sights.GetSightsRearPosition();
-			}
-			else
-			{
-				aimDir = m_eTurretController.GetAimingDirectionWorld();
-				if(m_eTurret)
-					aimPos = m_eTurret.GetOrigin();
-			}
-		}
-		else if(m_eCurrentPlayer)
-		{
-			if(m_eCurrentPlayer.GetHeadAimingComponent())
-			{
-				aimDir = m_eCurrentPlayer.GetHeadAimingComponent().GetAimingDirectionWorld();
-				aimPos = m_eCurrentPlayer.EyePosition();
-			}
+			m_eLockTypeComponent.GetAimDirAndPosOfLauncher(m_eOwner, aimDir, aimPos);
 		}
 		
 		Rpc(RpcAsk_SaclosFix, aimDir, aimPos);
@@ -315,10 +305,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	[RplRpc(RplChannel.Unreliable, RplRcver.Server)]
 	void RpcAsk_SaclosFix(vector aimDir, vector aimPos)
 	{
-		if(float.IsNaN(aimDir[0]) || float.IsNaN(aimDir[1]) || float.IsNaN(aimDir[2]) ||
-		   float.IsNaN(aimPos[0]) || float.IsNaN(aimPos[1]) || float.IsNaN(aimPos[2]) ||
-		   float.IsInfinity(aimDir[0]) || float.IsInfinity(aimDir[1]) || float.IsInfinity(aimDir[2]) ||
-		   float.IsInfinity(aimPos[0]) || float.IsInfinity(aimPos[1]) || float.IsInfinity(aimPos[2]))
+		if(!IsValidVector(aimDir) || !IsValidVector(aimPos))
 			return;
 			
 		if(m_eLastMissileSaclos)

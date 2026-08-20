@@ -71,10 +71,9 @@ class BGONE_SeekerType_PLOS : BGONE_SeekerType_Base
 		m_TraceParam.ExcludeArray = m_aExcludeEntities;
 		m_TraceParam.LayerMask = EPhysicsLayerDefs.Projectile;
 		
-		IEntity hitEntity = null;
-		float fraction = GetGame().GetWorld().TraceMove(m_TraceParam, hitEntity);
+		float fraction = GetGame().GetWorld().TraceMove(m_TraceParam, null);
 		if(fraction < 1.0)
-			return hitEntity;
+			return m_TraceParam.TraceEnt;
 			
 		return null;
 	}

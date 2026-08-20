@@ -24,14 +24,14 @@ class BGONE_LockType_SACLOS : BGONE_LockType_Base
 			{
 				BaseCompartmentSlot slot = controller.GetCompartmentSlot();
 				if(slot && slot.GetOccupant())
-					m_cTargetDataSACLOS.shooterRplId = Replication.FindId(slot.GetOccupant());
+					m_cTargetDataSACLOS.shooterRplId = Replication.FindItemId(slot.GetOccupant());
 			}
 		}
 		else
 		{
 			IEntity rootParent = m_eLauncher.GetRootParent();
 			if(rootParent)
-				m_cTargetDataSACLOS.shooterRplId = Replication.FindId(rootParent);
+				m_cTargetDataSACLOS.shooterRplId = Replication.FindItemId(rootParent);
 		}
 		
 		return m_cTargetDataSACLOS;

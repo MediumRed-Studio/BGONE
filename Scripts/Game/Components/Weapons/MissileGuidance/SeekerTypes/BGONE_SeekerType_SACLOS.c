@@ -55,21 +55,39 @@ class BGONE_SeekerType_SACLOS : BGONE_SeekerType_Base
 				BaseSightsComponent sights = turret.GetCurrentSights();
 				if(sights)
 				{
-					aimDir = sights.GetSightsDirectionUntransformed();
-					aimPos = sights.GetSightsRearPosition();
+					aimDir = sights.GetSightsDirection(false);
+					aimPos = sights.GetSightsRearPosition(false);
 				}
-				else
+				else if(turret.GetOwner())
 				{
-					aimDir = turret.GetAimingDirectionWorld();
-					if(turret.GetOwner())
-						aimPos = turret.GetOwner().GetOrigin();
+					vector mat[4];
+					turret.GetOwner().GetWorldTransform(mat);
+					aimDir = mat[2];
+					aimPos = turret.GetOwner().GetOrigin();
 				}
 			}
 			else if(shooter)
 			{
-				if(shooter.GetHeadAimingComponent())
+				BaseWeaponManagerComponent weaponManager = BaseWeaponManagerComponent.Cast(shooter.FindComponent(BaseWeaponManagerComponent));
+				if(weaponManager && weaponManager.GetCurrentWeapon())
 				{
-					aimDir = shooter.GetHeadAimingComponent().GetAimingDirectionWorld();
+					BaseSightsComponent sights = weaponManager.GetCurrentWeapon().GetSights();
+					if(sights)
+					{
+						aimDir = sights.GetSightsDirection(false);
+						aimPos = sights.GetSightsRearPosition(false);
+					}
+					else
+					{
+						aimDir = shooter.EyePosition() - m_eProjectile.GetOrigin();
+						aimDir.Normalize();
+						aimPos = shooter.EyePosition();
+					}
+				}
+				else
+				{
+					aimDir = shooter.EyePosition() - m_eProjectile.GetOrigin();
+					aimDir.Normalize();
 					aimPos = shooter.EyePosition();
 				}
 			}

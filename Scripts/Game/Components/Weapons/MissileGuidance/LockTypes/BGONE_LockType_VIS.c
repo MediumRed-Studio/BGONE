@@ -16,8 +16,8 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	[Attribute("{BF22E0769628374D}UI/layouts/BGONE_VIS_SeekBox.layout", UIWidgets.ResourcePickerThumbnail, desc: "Layout displayed when locking onto a target", category: "BGONE")]
 	protected ResourceName m_sLockOnLayout;
 
-	[Attribute("1", UIWidgets.ComboBox, "Units launcher can lock onto", "", ParamEnumArray.FromEnum(EAIUnitType) )]
-	protected ref array<EAIUnitType> m_eUnitTypesToLock;
+	[Attribute("1", UIWidgets.ComboBox, "Units launcher can lock onto", "", ParamEnumArray.FromEnum(EEditableEntityType) )]
+	protected ref array<EEditableEntityType> m_eUnitTypesToLock;
 
 	protected IEntity m_eLauncher;
 	protected ref BGONE_TargetData m_eTargetData;
@@ -36,7 +36,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	protected ImageWidget m_wBL;
 	protected ImageWidget m_wBR;
 	
-	protected AudioHandle m_eLockAudioHandle = AudioHandle.Empty;
+	protected AudioHandle m_eLockAudioHandle = AudioHandle.Invalid;
 	protected SoundComponent m_eSoundComponent;
 	protected bool m_bLockEventFired = false;
 	
@@ -258,8 +258,8 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		SCR_EditableEntityComponent editable = SCR_EditableEntityComponent.Cast(ent.FindComponent(SCR_EditableEntityComponent));
 		if(editable)
 		{
-			EAIUnitType unitType = editable.GetAIUnitType();
-			if(m_eUnitTypesToLock.Contains(unitType))
+			EEditableEntityType entityType = editable.GetEntityType();
+			if(m_eUnitTypesToLock && m_eUnitTypesToLock.Contains(entityType))
 				return true;
 		}
 		
@@ -315,17 +315,17 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		}
 		else
 		{
-			if(m_eLockAudioHandle == AudioHandle.Empty)
+			if(m_eLockAudioHandle == AudioHandle.Invalid)
 				m_eLockAudioHandle = m_eSoundComponent.SoundEvent("SOUND_LOCKING_LOOP");
 		}
 	}
 
 	override void TerminateLockOnAudio()
 	{
-		if(m_eSoundComponent && m_eLockAudioHandle != AudioHandle.Empty)
+		if(m_eSoundComponent && m_eLockAudioHandle != AudioHandle.Invalid)
 		{
 			m_eSoundComponent.Terminate(m_eLockAudioHandle);
-			m_eLockAudioHandle = AudioHandle.Empty;
+			m_eLockAudioHandle = AudioHandle.Invalid;
 		}
 	}
 
