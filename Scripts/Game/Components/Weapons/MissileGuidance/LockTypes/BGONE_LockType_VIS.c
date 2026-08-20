@@ -209,7 +209,11 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 			
 		Physics phys = target.GetPhysics();
 		if(phys)
-			return target.CoordToParent(phys.GetCenterOfMass());
+		{
+			vector com = phys.GetCenterOfMass();
+			if(com != vector.Zero)
+				return target.GetOrigin() + com;
+		}
 			
 		return target.GetOrigin() + Vector(0, 1, 0);
 	}

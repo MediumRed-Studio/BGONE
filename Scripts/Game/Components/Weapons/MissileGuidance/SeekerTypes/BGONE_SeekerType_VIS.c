@@ -32,8 +32,8 @@ class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 
 	override BGONE_TargetData ProcessFrame(BGONE_TargetData targetData, float flightTime)
 	{
-		if(!targetData)
-			return null;
+		if(!targetData || !m_eProjectile)
+			return targetData;
 
 		// Upstream TTL check
 		if(m_fTimeToLive > 0 && flightTime > m_fTimeToLive)
@@ -58,18 +58,24 @@ class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 				}
 			}
 
-			vector centerOfMass = Vector(0,0,0);
-			if(target.GetPhysics())
+			Physics targetPhys = target.GetPhysics();
+			if(targetPhys)
 			{
-				centerOfMass = target.GetPhysics().GetCenterOfMass();
-				targetVel = target.GetPhysics().GetVelocity();
+				vector com = targetPhys.GetCenterOfMass();
+				if(com != vector.Zero)
+					centerPos = target.GetOrigin() + com;
+				else
+					centerPos = target.GetOrigin() + Vector(0, 1, 0);
+				targetVel = targetPhys.GetVelocity();
 			}
-			centerPos = target.CoordToParent(centerOfMass);
+			else
+			{
+				centerPos = target.GetOrigin() + Vector(0, 1, 0);
+			}
 		}
-		else if(centerPos == Vector(0,0,0))
-		{
+		
+		if(centerPos == Vector(0,0,0))
 			return targetData;
-		}
 
 		vector projPos = m_eProjectile.GetOrigin();
 		vector toTarget = centerPos - projPos;
@@ -78,44 +84,15 @@ class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 		if(distToTarget < 0.001)
 			return targetData;
 
-		// FOV validation (evaluated after missile clears launcher at > 0.3s)
+		// Calculate projectile velocity & speed
 		vector vel = Vector(0,0,1);
 		if(m_eProjectile.GetPhysics())
 			vel = m_eProjectile.GetPhysics().GetVelocity();
 			
-		bool angleOk = true;
-		if(flightTime > 0.3 && vel.Length() > 10.0)
-		{
-			float dot = Math.Clamp(vector.Dot(vel.Normalized(), toTarget.Normalized()), -1.0, 1.0);
-			float angle = Math.Acos(dot) * Math.RAD2DEG;
-			if(angle > m_fSeekerFOV)
-				angleOk = false;
-		}
-
-		bool losOk = true;
-		if(flightTime > 0.3)
-		{
-			losOk = TraceLOS(projPos, centerPos, target, targetData.GetShooterEntity());
-		}
-
-		if(!angleOk || !losOk)
-		{
-			if(m_fNoTargetDestructTime > 0 && (flightTime - m_fTargetLastSeenTime > m_fNoTargetDestructTime))
-			{
-				targetData.detonated = EBGONE_DetonationState.IMPACT;
-				return targetData;
-			}
-			targetData.targetPosition = centerPos;
-			return targetData;
-		}
-
-		m_fTargetLastSeenTime = flightTime;
-
-		// Lead prediction
 		float projSpeed = vel.Length();
 		if(projSpeed < 10.0)
-			projSpeed = 150.0; // Fallback speed
-			
+			projSpeed = 150.0;
+
 		float timeToImpact = distToTarget / projSpeed;
 		targetData.targetPosition = centerPos + (targetVel * timeToImpact);
 		
