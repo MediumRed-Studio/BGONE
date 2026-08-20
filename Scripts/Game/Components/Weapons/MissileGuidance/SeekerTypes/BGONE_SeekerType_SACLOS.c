@@ -1,7 +1,10 @@
 [BaseContainerProps()]
 class BGONE_SeekerType_SACLOS : BGONE_SeekerType_Base
 {
-	[Attribute("10", UIWidgets.Slider, "FOV In Degrees The Seeker Can See The Shooter/Launcher In Relation To The Missiles Forward Vector", "0 90 0.1", category: "BGONE")]
+	[Attribute("5.6", UIWidgets.Slider, "How Many Seconds Until The Missile Self Destructs", "0 30 0.1", category: "BGONE")]
+	protected float m_fTimeToLive;
+
+	[Attribute("60", UIWidgets.Slider, "FOV In Degrees The Seeker Can See The Shooter/Launcher In Relation To The Missiles Forward Vector", "0 90 0.1", category: "BGONE")]
 	protected float m_fSeekerFOV;
 	
 	[Attribute("100", UIWidgets.Slider, "Min Distance From Launch Before Missile Arms", "0 1000 1", category: "BGONE")]
@@ -38,6 +41,12 @@ class BGONE_SeekerType_SACLOS : BGONE_SeekerType_Base
 	{
 		if(!targetData || !m_eProjectile)
 			return targetData;
+
+		if(m_fTimeToLive > 0 && flightTime > m_fTimeToLive)
+		{
+			targetData.detonated = EBGONE_DetonationState.IMPACT;
+			return targetData;
+		}
 		
 		m_vProjectilePos = m_eProjectile.GetOrigin();
 
@@ -72,6 +81,7 @@ class BGONE_SeekerType_SACLOS : BGONE_SeekerType_Base
 				if(headAim)
 				{
 					aimDir = headAim.GetAimingDirectionWorld();
+					aimDir[0] = -aimDir[0]; // Upstream character azimuth correction
 					aimPos = shooter.EyePosition();
 				}
 				else

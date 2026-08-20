@@ -119,6 +119,21 @@ class BGONE_LockType_Base : ScriptAndConfig
 		if(!launcher)
 			return;
 
+		// Check PIP Sight Camera first (Upstream parity)
+		SCR_2DPIPSightsComponent pipSight = ArmaReforgerScripted.GetCurrentPIPSights();
+		if(pipSight)
+		{
+			SCR_PIPCamera pipCam = pipSight.GetPIPCamera();
+			if(pipCam)
+			{
+				vector pipMat[4];
+				pipCam.GetWorldCameraTransform(pipMat);
+				aimDir = pipMat[2];
+				aimPos = pipMat[3];
+				return;
+			}
+		}
+
 		Turret turret = Turret.Cast(launcher.GetParent());
 		if(turret)
 		{

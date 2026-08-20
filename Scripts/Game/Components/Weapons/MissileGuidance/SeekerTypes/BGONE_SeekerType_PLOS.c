@@ -4,6 +4,9 @@ class BGONE_SeekerType_PLOS : BGONE_SeekerType_Base
 	[Attribute("20, 100", UIWidgets.EditBox, "Distances In Meters The Seeker Arms (Arming Distance Is Determined By Launcher Selection)", category: "BGONE")]
 	protected ref array<int> m_aArmingDistances;
 	
+	[Attribute("5.0", UIWidgets.Slider, "How Far Down Can The Proximity Sensor Detect Targets In FlyOver Mode (Meters)", "0 20 0.5", category: "BGONE")]
+	protected float m_fProximityDetectionRange;
+
 	protected bool m_bIsFlyover;
 	protected ref BGONE_TargetData m_eTargetData;
 	
@@ -59,8 +62,9 @@ class BGONE_SeekerType_PLOS : BGONE_SeekerType_Base
 		if(!m_eProjectile)
 			return null;
 			
+		float range = (m_fProximityDetectionRange > 0) ? m_fProximityDetectionRange : 5.0;
 		vector pos = m_eProjectile.GetOrigin();
-		vector endPos = pos + (Vector(0, -1, 0) * 3.0);
+		vector endPos = pos + (Vector(0, -1, 0) * range);
 		
 		m_aExcludeEntities.Clear();
 		m_aExcludeEntities.Insert(m_eProjectile);
