@@ -67,6 +67,9 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		if(!m_eCurrentTargetData)
 			return;
 			
+		if(!m_eOwner)
+			m_eOwner = Projectile.Cast(GetOwner());
+			
 		SetAttackAndFireModes(m_eCurrentTargetData.attackProfileIndex, m_eCurrentTargetData.armingDistancesIndex);
 		
 		if(m_eSeekerTypeComponent)

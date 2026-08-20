@@ -222,6 +222,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	{
 		vector currentDir, aimFrom;
 		GetAimDirAndPosOfLauncher(m_eLauncher, currentDir, aimFrom);
+		vector rayStart = aimFrom + currentDir * 0.5;
 		
 		if(lastTarget)
 		{
@@ -245,7 +246,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 				{
 					vector testPos = currentTarget.CoordToParent(Vector(xOff * -Math.Cos(relAngle), yOff, xOff * Math.Sin(relAngle)));
 					lastTarget = null;
-					TraceLOS(aimFrom, testPos);
+					TraceLOS(rayStart, testPos);
 					if(lastTarget)
 						return lastTarget;
 				}
@@ -256,9 +257,9 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		// Step 1: Direct Center-Aim Raycast
 		vector centerAimTo = aimFrom + currentDir * (float)m_iMaxLockOnRange;
 		lastTarget = null;
-		TraceLOS(aimFrom, centerAimTo);
+		TraceLOS(rayStart, centerAimTo);
 		if(!lastTarget)
-			TraceLOS(aimFrom, centerAimTo);
+			TraceLOS(rayStart, centerAimTo);
 		if(lastTarget)
 			return lastTarget;
 
@@ -273,7 +274,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 				vector testPos = aimFrom + aimDir * (float)m_iMaxLockOnRange;
 				
 				lastTarget = null;
-				TraceLOS(aimFrom, testPos);
+				TraceLOS(rayStart, testPos);
 				if(lastTarget)
 					return lastTarget;
 			}
@@ -285,10 +286,14 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	protected bool TraceLOS(vector from, vector to, bool excludeLockedTarget = false)
 	{
 		m_aExcludeEntities.Clear();
-		if(m_eLauncher.GetRootParent())
-			m_aExcludeEntities.Insert(m_eLauncher.GetRootParent());
-		else if(m_eLauncher)
+		if(m_eLauncher)
+		{
 			m_aExcludeEntities.Insert(m_eLauncher);
+			if(m_eLauncher.GetRootParent())
+				m_aExcludeEntities.Insert(m_eLauncher.GetRootParent());
+			if(m_eLauncher.GetParent())
+				m_aExcludeEntities.Insert(m_eLauncher.GetParent());
+		}
 			
 		if(excludeLockedTarget && lockingTarget)
 			m_aExcludeEntities.Insert(lockingTarget);
@@ -316,8 +321,13 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		if(!root)
 			root = ent;
 			
-		if(root == m_eLauncher || root == m_eLauncher.GetRootParent())
-			return false;
+		if(m_eLauncher)
+		{
+			if(root == m_eLauncher || root == m_eLauncher.GetRootParent() || root == m_eLauncher.GetParent())
+				return false;
+			if(ent == m_eLauncher || ent == m_eLauncher.GetRootParent() || ent == m_eLauncher.GetParent())
+				return false;
+		}
 			
 		if(Vehicle.Cast(root) || Vehicle.Cast(ent) || SCR_ChimeraCharacter.Cast(root) || SCR_ChimeraCharacter.Cast(ent))
 		{
