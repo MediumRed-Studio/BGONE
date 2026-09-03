@@ -208,6 +208,21 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 
 	void UpdateTurretAim(vector aimDir, vector aimPos)
 	{
+		// The SACLOS relay invokes this on the server copy, where an Rpc
+		// addressed to Server would be a self-send (unreliable delivery).
+		// Apply directly on authority; keep the RPC for any remote caller.
+		if(m_RplComponent && m_RplComponent.Role() == RplRole.Authority)
+		{
+			if(!IsValidVector(aimDir) || !IsValidVector(aimPos))
+				return;
+			
+			BGONE_SeekerType_SACLOS seeker = BGONE_SeekerType_SACLOS.Cast(m_eSeekerTypeComponent);
+			if(!seeker)
+				return;
+			
+			seeker.UpdateAimingDirServer(aimDir, aimPos);
+			return;
+		}
 		Rpc(RpcDo_UpdateAimingDir, aimDir, aimPos);
 	}
 	

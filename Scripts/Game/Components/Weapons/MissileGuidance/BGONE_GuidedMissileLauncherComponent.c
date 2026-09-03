@@ -317,12 +317,28 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			targetData = m_eLockTypeComponent.GetCurrentTargetData();
 			
 		if(!targetData)
+		{
 			targetData = new BGONE_TargetData();
+		}
+		else
+		{
+			// Snapshot: the lock keeps mutating its live object (PLOS
+			// smooths aim until ADS drop; VIS tears down 10 ms post-fire).
+			// The missile must fly frozen fire-time values, not a live ref.
+			targetData = BGONE_TargetData.Cast(targetData.Clone());
+		}
 		
+		vector launchDir = entity.GetYawPitchRoll().AnglesToVector();
 		targetData.launchPos = entity.GetOrigin();
-		targetData.launchDir = entity.GetYawPitchRoll().AnglesToVector();
+		targetData.launchDir = launchDir;
 		targetData.attackProfileIndex = m_iCurrentAttackModeIndex;
 		targetData.armingDistancesIndex = m_iCurrentArmingDistanceIndex;
+		
+		// Zero aimpoint init: a launch with no position yet (SACLOS before
+		// first aim, unlocked VIS) must coast straight ahead, never steer
+		// at the world origin while waiting for real data.
+		if(targetData.targetPosition == Vector(0,0,0))
+			targetData.targetPosition = targetData.launchPos + launchDir * 10.0;
 		
 		// Launcher owns the occupant: stamp shooter provenance for kill
 		// credit on the authority copy. Locks only set this for SACLOS, so
@@ -563,6 +579,9 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			m_eLockTypeComponent.GetOnLockAcquired().Remove(LockAcquired);
 			m_eLockTypeComponent.GetOnLockLost().Remove(LockLost);
 			LockLost();
+			// Full lock teardown (widget, scan state, progress): dismount
+			// must not leave a stale lock behind for the next occupant.
+			m_eLockTypeComponent.StopLock();
 		}
 		
 		if(m_eventHandler)
@@ -591,11 +610,21 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	void SetAvailableAttackProfiles(array<ref BGONE_AttackProfile_Base> attackProfiles)
 	{
 		m_eSupportedAttackProfiles = attackProfiles;
+		// The list can shrink (missile chamber syncs its own profiles over
+		// the launcher defaults): clamp a stale selection back into range
+		// instead of reading out of bounds.
+		if(m_eSupportedAttackProfiles && !m_eSupportedAttackProfiles.IsIndexValid(m_iCurrentAttackModeIndex))
+			m_iCurrentAttackModeIndex = 0;
 	}
 	
 	void SetAvailableArmingDistances(array<int> armingDistances)
 	{
 		m_aAvailableArmingDistances = armingDistances;
+		// Same staleness as above: without the clamp, index 2 selected from
+		// the {20,50,100} defaults survives into a {20,100} list, fails
+		// IsIndexValid in the seeker, and arms at 0 m.
+		if(m_aAvailableArmingDistances && !m_aAvailableArmingDistances.IsIndexValid(m_iCurrentArmingDistanceIndex))
+			m_iCurrentArmingDistanceIndex = 0;
 	}
 	
 	int GetArmingDistancesCount() 
