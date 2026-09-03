@@ -317,12 +317,33 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			targetData = m_eLockTypeComponent.GetCurrentTargetData();
 			
 		if(!targetData)
+		{
 			targetData = new BGONE_TargetData();
+		}
+		else
+		{
+			// Snapshot: PLOS keeps smoothing the live object until ADS
+			// drop, and VIS can still mutate it in the ~10 ms before its
+			// deferred StopLock fires. (SACLOS hands a fresh object, so the
+			// Clone is a no-op there — kept uniform on purpose.) The missile
+			// must fly frozen fire-time values, not a live ref.
+			targetData = BGONE_TargetData.Cast(targetData.Clone());
+			targetData.InvalidateEntities();
+		}
 		
+		vector launchDir = entity.GetYawPitchRoll().AnglesToVector();
 		targetData.launchPos = entity.GetOrigin();
-		targetData.launchDir = entity.GetYawPitchRoll().AnglesToVector();
+		targetData.launchDir = launchDir;
 		targetData.attackProfileIndex = m_iCurrentAttackModeIndex;
 		targetData.armingDistancesIndex = m_iCurrentArmingDistanceIndex;
+		
+		// Zero aimpoint init: SACLOS pre-first-relay and unlocked VIS (which
+		// coasts to its no-target timer, never receiving relay data) must
+		// coast straight ahead, never steer at the world origin. PLOS
+		// overwrites this on its first attack-profile tick (angular
+		// guidance needs no position seed).
+		if(targetData.targetPosition == Vector(0,0,0))
+			targetData.targetPosition = targetData.launchPos + launchDir * 10.0;
 		
 		// Launcher owns the occupant: stamp shooter provenance for kill
 		// credit on the authority copy. Locks only set this for SACLOS, so
@@ -563,6 +584,10 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			m_eLockTypeComponent.GetOnLockAcquired().Remove(LockAcquired);
 			m_eLockTypeComponent.GetOnLockLost().Remove(LockLost);
 			LockLost();
+			// Full lock teardown (widget, scan state, progress): dismount
+			// must not leave a stale lock behind for the next occupant.
+			// (Double LockLost with the line above is idempotent by design.)
+			m_eLockTypeComponent.StopLock();
 		}
 		
 		if(m_eventHandler)
@@ -591,11 +616,21 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	void SetAvailableAttackProfiles(array<ref BGONE_AttackProfile_Base> attackProfiles)
 	{
 		m_eSupportedAttackProfiles = attackProfiles;
+		// The list can shrink (missile chamber syncs its own profiles over
+		// the launcher defaults): repair a stale selection instead of
+		// reading it out of bounds.
+		if(m_eSupportedAttackProfiles && !m_eSupportedAttackProfiles.IsIndexValid(m_iCurrentAttackModeIndex))
+			m_iCurrentAttackModeIndex = 0;
 	}
 	
 	void SetAvailableArmingDistances(array<int> armingDistances)
 	{
 		m_aAvailableArmingDistances = armingDistances;
+		// Same staleness as above: without the repair, a selection made
+		// against a longer list fails IsIndexValid in the seeker and arms
+		// at 0 m.
+		if(m_aAvailableArmingDistances && !m_aAvailableArmingDistances.IsIndexValid(m_iCurrentArmingDistanceIndex))
+			m_iCurrentArmingDistanceIndex = 0;
 	}
 	
 	int GetArmingDistancesCount() 

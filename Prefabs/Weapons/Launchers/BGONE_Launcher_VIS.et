@@ -14,6 +14,8 @@ GenericEntity : "{37F022D0CDC84C11}Prefabs/Weapons/Launchers/M72/Launcher_M72A3_
     BGONE_GuidedMissileLauncherComponent "{61D52846F9F67484}" {
      m_eLockTypeComponent BGONE_LockType_VIS "{61D52846FACEA01F}" {
       m_iMaxLockOnRange 2000
+      m_eUnitTypesToLock {
+      }
      }
     }
     SCR_MuzzleInMagComponent "{50F65D04F21F7633}" {
