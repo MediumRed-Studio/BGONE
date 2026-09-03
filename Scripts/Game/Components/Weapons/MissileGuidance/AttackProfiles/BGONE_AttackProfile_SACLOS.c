@@ -4,7 +4,7 @@ class BGONE_AttackProfile_SACLOS : BGONE_AttackProfile_Base
 	[Attribute("0 0 0", UIWidgets.Coords, "Where the missile wants to stay in relation to the crosshair", category: "BGONE")]
 	protected vector m_vCrossHairOffset;
 	
-	[Attribute("10", UIWidgets.Slider, "Max Distance in Meters The Missile Can Correct Its Path Towards The Crosshair", "0 100 0.1", category: "BGONE")]
+	[Attribute("3", UIWidgets.Slider, "Max Distance in Meters The Missile Can Correct Its Path Towards The Crosshair", "0 100 0.1", category: "BGONE")]
 	protected float m_fMaxCorrectableDistance;
 
 	void BGONE_AttackProfile_SACLOS()

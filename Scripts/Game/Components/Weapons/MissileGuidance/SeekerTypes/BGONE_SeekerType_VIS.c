@@ -46,44 +46,23 @@ class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 		
 		if(!targetData.targetRplId.IsValid())
 		{
-			// Fired without a lock (e.g. during acquire): no track to gate
-			// on, so coast on the partial aimpoint and run the no-target
-			// timer to expiry instead of flying forever. Deliberately NOT
-			// zeroed: zero would steer at the world origin via the engine.
-			if(flightTime - m_fTargetLastSeenTime > m_fNoTargetDestructTime)
-			{
-				targetData.detonated = EBGONE_DetonationState.IMPACT;
-				return targetData;
-			}
-			
+			// Fired without a lock: origin behavior is an unguided coast
+			// to TTL (no track to gate on). Kept as-is.
 			return targetData;
 		}
 		
 		IEntity target = targetData.GetTargetEntity();
 		if(!target)
 		{
-			// Target destroyed mid-flight: keep the last transmitted
-			// position (never zero: zero would steer at the world origin)
-			// and run the same timer, then impact-detonate.
-			if(flightTime - m_fTargetLastSeenTime > m_fNoTargetDestructTime)
-			{
-				targetData.detonated = EBGONE_DetonationState.IMPACT;
-				return targetData;
-			}
-			
+			// No resolved target: coast on last transmitted position.
+			// (Null guard is 1.8 crash-safety only; origin had none.)
 			return targetData;
 		}
 		
 		Physics targetPhys = target.GetPhysics();
 		if(!targetPhys)
 		{
-			// No physics to aim at: same no-target timer, not forever.
-			if(flightTime - m_fTargetLastSeenTime > m_fNoTargetDestructTime)
-			{
-				targetData.detonated = EBGONE_DetonationState.IMPACT;
-				return targetData;
-			}
-			
+			// No physics to aim at: same coast, no gate to run.
 			return targetData;
 		}
 		

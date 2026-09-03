@@ -7,13 +7,13 @@ class BGONE_MissileEngine_Base : ScriptAndConfig
 	[Attribute("2.1", UIWidgets.Slider, "Thrust Duration (Seconds) While Rocket Motor Burns", "0 60 0.1", category: "BGONE")]
 	protected float m_fThrustBurnTime;
 	
-	[Attribute("50", UIWidgets.Slider, "Initial Exit Velocity (Meters per Second)", "0 500 1", category: "BGONE")]
+	[Attribute("20", UIWidgets.Slider, "Initial Exit Velocity (Meters per Second)", "0 500 1", category: "BGONE")]
 	protected float m_fInitialSpeed;
 	
 	[Attribute("200", UIWidgets.Slider, "Max Powered Speed (Meters per Second)", "0 1500 1", category: "BGONE")]
 	protected float m_fMaxSpeed;
 	
-	[Attribute("30", UIWidgets.Slider, "Total Flight Lifetime Before Fuel / Battery Exhaustion (ammo prefab overrides win; must match seeker TTL + MissileMove TimeToLive there — per-weapon: PLOS 6.1, SACLOS 12, VIS 30)", "0 120 1", category: "BGONE")]
+	[Attribute("5.6", UIWidgets.Slider, "Total Flight Lifetime Before Fuel / Battery Exhaustion (ammo prefab overrides win; keep the trio seeker TTL + engine TTL + MissileMove TimeToLive consistent per ammo — origin endurance is 6.1 s)", "0 120 1", category: "BGONE")]
 	protected float m_fTimeToLive;
 
 	float GetThrustDelay()

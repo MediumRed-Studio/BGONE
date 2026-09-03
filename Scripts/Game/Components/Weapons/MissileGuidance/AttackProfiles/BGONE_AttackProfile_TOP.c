@@ -4,7 +4,7 @@ class BGONE_AttackProfile_TOP : BGONE_AttackProfile_Base
 	[Attribute("160", UIWidgets.Slider, "Cruise Altitude (Meters) - Scaled Down When Fired Close Range", "0 500 1", category: "BGONE")]
 	protected int m_iCruiseAltitude;
 	
-	[Attribute("1000", UIWidgets.Slider, "Distance To Target (Meters) Where Missile Reaches Full Cruise Altitude", "0 2000 1", category: "BGONE")]
+	[Attribute("1250", UIWidgets.Slider, "Distance To Target (Meters) Where Missile Reaches Full Cruise Altitude", "0 2000 1", category: "BGONE")]
 	protected int m_iCruiseAltitudeRange;
 
 	protected int m_iStage = 0;
