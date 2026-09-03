@@ -1,7 +1,7 @@
 [BaseContainerProps()]
 class BGONE_SeekerType_SACLOS : BGONE_SeekerType_Base
 {
-	[Attribute("5.6", UIWidgets.Slider, "How Many Seconds Until The Missile Self Destructs (ammo prefab overrides win; must match engine TTL + MissileMove TimeToLive there)", "0 30 0.1", category: "BGONE")]
+	[Attribute("5.6", UIWidgets.Slider, "How Many Seconds Until The Missile Self Destructs (origin value; engine TTL 5.6 fires first)", "0 30 0.1", category: "BGONE")]
 	protected float m_fTimeToLive;
 
 	[Attribute("60", UIWidgets.Slider, "Seeker Half-Angle In Degrees: Missile Must Stay Within This Deviation From The Shooter Aim Line (upstream parity values: 30 VIS / 60 SACLOS)", "0 90 0.1", category: "BGONE")]
@@ -56,11 +56,11 @@ class BGONE_SeekerType_SACLOS : BGONE_SeekerType_Base
 		vector aimDir = m_vAimDir;
 		vector aimPos = m_vAimPos;
 
-		// Fallback to server values if no client update for > 1.0 second (1000ms).
+		// Fallback to server values if no client update for > 0.5 seconds (500ms, origin value).
 		// Owner-client copies never simulate (proxy-gated), so this fallback
 		// steers host-authority and dedicated-server missiles; owners see the
 		// server-driven proxy via the 20 Hz transform sync.
-		if(GetGame().GetWorld().GetWorldTime() - m_fTimeOfLastAimUpdate > 1000.0)
+		if(GetGame().GetWorld().GetWorldTime() - m_fTimeOfLastAimUpdate > 500.0)
 		{
 			if(turret && turret.GetOwner())
 			{

@@ -47,7 +47,7 @@ Projectile : "{C0BDA86B5AA5648C}Prefabs/Weapons/Core/Ammo_Rocket_Base.et" {
   MissileMoveComponent "{0EF36690881261EF}" {
    InitSpeed 150
    Mass 0.99
-   TimeToLive 30
+   TimeToLive 6.1
    ProjectileEffects {
     AIHitEffect "{61D52844655A36A8}" {
     }
@@ -78,7 +78,6 @@ Projectile : "{C0BDA86B5AA5648C}Prefabs/Weapons/Core/Ammo_Rocket_Base.et" {
     }
    }
    m_eMissileEngineComponent BGONE_MissileEngine_Base "{61D52844ACB2D783}" {
-    m_fTimeToLive 30
    }
   }
  }

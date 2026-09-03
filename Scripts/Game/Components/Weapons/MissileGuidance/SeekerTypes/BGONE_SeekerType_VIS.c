@@ -1,13 +1,13 @@
 [BaseContainerProps()]
 class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 {
-	[Attribute("5.6", UIWidgets.Slider, "How many seconds until the missile self destructs (ammo prefab overrides win; must match engine TTL + MissileMove TimeToLive there)", "0 30 0.1", category: "BGONE")]
+	[Attribute("5.6", UIWidgets.Slider, "How many seconds until the missile self destructs (origin value; engine TTL 5.6 fires first)", "0 30 0.1", category: "BGONE")]
 	protected float m_fTimeToLive;
 
 	[Attribute("30", UIWidgets.Slider, "Seeker half-angle in degrees: target must stay within this deviation from the missile velocity vector (upstream parity values: 30 VIS / 60 SACLOS)", "0 90 0.1", category: "BGONE")]
 	protected float m_fSeekerFOV;
 	
-	[Attribute("2.0", UIWidgets.Slider, "How many seconds after target is lost until the missile self destructs", "0 100 0.1", category: "BGONE")]
+	[Attribute("2.0", UIWidgets.Slider, "How many seconds after LOS/FOV track is lost until the missile self destructs (post-acquisition only)", "0 100 0.1", category: "BGONE")]
 	protected float m_fNoTargetDestructTime;
 	
 	[Attribute("100", UIWidgets.Slider, "Min distance from launch before missile arms", "0 1000 1", category: "BGONE")]
@@ -46,44 +46,23 @@ class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 		
 		if(!targetData.targetRplId.IsValid())
 		{
-			// Fired without a lock (e.g. during acquire): no track to gate
-			// on, so coast on the partial aimpoint and run the no-target
-			// timer to expiry instead of flying forever. Deliberately NOT
-			// zeroed: zero would steer at the world origin via the engine.
-			if(flightTime - m_fTargetLastSeenTime > m_fNoTargetDestructTime)
-			{
-				targetData.detonated = EBGONE_DetonationState.IMPACT;
-				return targetData;
-			}
-			
+			// Fired without a lock: origin behavior is an unguided coast
+			// to TTL (no track to gate on). Kept as-is.
 			return targetData;
 		}
 		
 		IEntity target = targetData.GetTargetEntity();
 		if(!target)
 		{
-			// Target destroyed mid-flight: keep the last transmitted
-			// position (never zero: zero would steer at the world origin)
-			// and run the same timer, then impact-detonate.
-			if(flightTime - m_fTargetLastSeenTime > m_fNoTargetDestructTime)
-			{
-				targetData.detonated = EBGONE_DetonationState.IMPACT;
-				return targetData;
-			}
-			
+			// No resolved target: coast on last transmitted position.
+			// (Null guard is 1.8 crash-safety only; origin had none.)
 			return targetData;
 		}
 		
 		Physics targetPhys = target.GetPhysics();
 		if(!targetPhys)
 		{
-			// No physics to aim at: same no-target timer, not forever.
-			if(flightTime - m_fTargetLastSeenTime > m_fNoTargetDestructTime)
-			{
-				targetData.detonated = EBGONE_DetonationState.IMPACT;
-				return targetData;
-			}
-			
+			// No physics to aim at: same coast, no gate to run.
 			return targetData;
 		}
 		
@@ -100,9 +79,10 @@ class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 			projVel = m_eProjectile.GetPhysics().GetVelocity();
 		
 		// Upstream parity: the seeker only tracks while the target is inside
-		// its FOV cone and line-of-sight is clear. Otherwise the no-target
-		// timer runs and expiry self-destructs the missile. Lazy eval skips
-		// the trace on FOV failure.
+		// its FOV cone and line-of-sight is clear. On post-acquisition
+		// FOV/LOS loss the no-target timer runs and expiry self-destructs
+		// the missile (pre-lock/destroyed paths coast to TTL instead).
+		// Lazy eval skips the trace on FOV failure.
 		if(!CheckSeekerAngle(projPos, projVel, centerPos) || !TraceLOS(projPos, centerPos, target, targetData.GetShooterEntity()))
 		{
 			if(flightTime - m_fTargetLastSeenTime > m_fNoTargetDestructTime)
