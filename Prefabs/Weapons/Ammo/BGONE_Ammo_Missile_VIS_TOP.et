@@ -68,7 +68,7 @@ Projectile : "{C0BDA86B5AA5648C}Prefabs/Weapons/Core/Ammo_Rocket_Base.et" {
   }
   BGONE_GuidedMissileComponent "{61D5284471A1FEC2}" {
    m_eSeekerTypeComponent BGONE_SeekerType_VIS "{61D52844826492B9}" {
-    m_fTimeToLive 6.1
+    m_fTimeToLive 30
     m_iArmingDistance 100
    }
    m_eAttackProfileComponents {
@@ -78,7 +78,6 @@ Projectile : "{C0BDA86B5AA5648C}Prefabs/Weapons/Core/Ammo_Rocket_Base.et" {
     }
    }
    m_eMissileEngineComponent BGONE_MissileEngine_Base "{61D52844ACB2D783}" {
-    m_fTimeToLive 6.1
    }
   }
  }

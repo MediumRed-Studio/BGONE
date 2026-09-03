@@ -14,7 +14,6 @@ Projectile : "{C0BDA86B5AA5648C}Prefabs/Weapons/Core/Ammo_Rocket_Base.et" {
     }
    }
    m_eMissileEngineComponent BGONE_MissileEngine_Base "{61D52845666A1CB2}" {
-    m_fTimeToLive 6.1
    }
   }
   CollisionTriggerComponent "{61D52845666A1CB0}" {
