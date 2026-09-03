@@ -1,10 +1,10 @@
 [BaseContainerProps()]
 class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 {
-	[Attribute("5.6", UIWidgets.Slider, "How many seconds until the missile self destructs", "0 30 0.1", category: "BGONE")]
+	[Attribute("5.6", UIWidgets.Slider, "How many seconds until the missile self destructs (ammo prefab overrides win; must match engine TTL + MissileMove TimeToLive there)", "0 30 0.1", category: "BGONE")]
 	protected float m_fTimeToLive;
 
-	[Attribute("30", UIWidgets.Slider, "FOV in degrees the seeker can see the target in relation to its forward vector", "0 90 0.1", category: "BGONE")]
+	[Attribute("30", UIWidgets.Slider, "Seeker half-angle in degrees: target must stay within this deviation from the missile velocity vector (upstream parity values: 30 VIS / 60 SACLOS)", "0 90 0.1", category: "BGONE")]
 	protected float m_fSeekerFOV;
 	
 	[Attribute("2.0", UIWidgets.Slider, "How many seconds after target is lost until the missile self destructs", "0 100 0.1", category: "BGONE")]
@@ -12,6 +12,8 @@ class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 	
 	[Attribute("100", UIWidgets.Slider, "Min distance from launch before missile arms", "0 1000 1", category: "BGONE")]
 	protected int m_iArmingDistance;
+	
+	protected const float PROXIMITY_RANGE = 3.0;
 	
 	protected float m_fTargetLastSeenTime = 0;
 	protected ref TraceParam m_TraceParam;
@@ -41,62 +43,113 @@ class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 			targetData.detonated = EBGONE_DetonationState.IMPACT;
 			return targetData;
 		}
-			
-		IEntity target = targetData.GetTargetEntity();
-		vector centerPos = targetData.targetPosition;
-		vector targetVel = Vector(0,0,0);
 		
-		if(target)
+		if(!targetData.targetRplId.IsValid())
 		{
-			if(GetDistanceFromLaunch(targetData) >= m_iArmingDistance)
+			// Fired without a lock (e.g. during acquire): no track to gate
+			// on, so coast on the partial aimpoint and run the no-target
+			// timer to expiry instead of flying forever. Deliberately NOT
+			// zeroed: zero would steer at the world origin via the engine.
+			if(flightTime - m_fTargetLastSeenTime > m_fNoTargetDestructTime)
 			{
-				// Check proximity detonation
-				if(vector.Distance(target.GetOrigin(), m_eProjectile.GetOrigin()) < 3.0)
-				{
-					targetData.detonated = EBGONE_DetonationState.IMPACT;
-					return targetData;
-				}
+				targetData.detonated = EBGONE_DetonationState.IMPACT;
+				return targetData;
 			}
-
-			Physics targetPhys = target.GetPhysics();
-			if(targetPhys)
+			
+			return targetData;
+		}
+		
+		IEntity target = targetData.GetTargetEntity();
+		if(!target)
+		{
+			// Target destroyed mid-flight: keep the last transmitted
+			// position (never zero: zero would steer at the world origin)
+			// and run the same timer, then impact-detonate.
+			if(flightTime - m_fTargetLastSeenTime > m_fNoTargetDestructTime)
 			{
-				vector com = targetPhys.GetCenterOfMass();
-				if(com != vector.Zero)
-					centerPos = target.GetOrigin() + com;
-				else
-					centerPos = target.GetOrigin() + Vector(0, 1, 0);
-				targetVel = targetPhys.GetVelocity();
+				targetData.detonated = EBGONE_DetonationState.IMPACT;
+				return targetData;
 			}
-			else
+			
+			return targetData;
+		}
+		
+		Physics targetPhys = target.GetPhysics();
+		if(!targetPhys)
+		{
+			// No physics to aim at: same no-target timer, not forever.
+			if(flightTime - m_fTargetLastSeenTime > m_fNoTargetDestructTime)
 			{
-				centerPos = target.GetOrigin() + Vector(0, 1, 0);
+				targetData.detonated = EBGONE_DetonationState.IMPACT;
+				return targetData;
+			}
+			
+			return targetData;
+		}
+		
+		vector centerOfMass = targetPhys.GetCenterOfMass();
+		vector centerPos;
+		if(centerOfMass == vector.Zero)
+			centerPos = target.GetOrigin() + Vector(0, 1, 0);
+		else
+			centerPos = target.GetOrigin() + centerOfMass;
+		
+		vector projPos = m_eProjectile.GetOrigin();
+		vector projVel = Vector(0,0,0);
+		if(m_eProjectile.GetPhysics())
+			projVel = m_eProjectile.GetPhysics().GetVelocity();
+		
+		// Upstream parity: the seeker only tracks while the target is inside
+		// its FOV cone and line-of-sight is clear. Otherwise the no-target
+		// timer runs and expiry self-destructs the missile. Lazy eval skips
+		// the trace on FOV failure.
+		if(!CheckSeekerAngle(projPos, projVel, centerPos) || !TraceLOS(projPos, centerPos, target, targetData.GetShooterEntity()))
+		{
+			if(flightTime - m_fTargetLastSeenTime > m_fNoTargetDestructTime)
+			{
+				targetData.detonated = EBGONE_DetonationState.IMPACT;
+				return targetData;
+			}
+			
+			targetData.targetPosition = Vector(0,0,0);
+			return targetData;
+		}
+		m_fTargetLastSeenTime = flightTime;
+		
+		// Armed proximity detonation around the target. Deliberately after
+		// the gate: no fusing through walls or outside the seeker cone.
+		if(GetDistanceFromLaunch(targetData) >= m_iArmingDistance)
+		{
+			if(vector.Distance(target.GetOrigin(), projPos) < PROXIMITY_RANGE)
+			{
+				targetData.detonated = EBGONE_DetonationState.IMPACT;
+				return targetData;
 			}
 		}
 		
-		if(centerPos == Vector(0,0,0))
-			return targetData;
-
-		vector projPos = m_eProjectile.GetOrigin();
-		vector toTarget = centerPos - projPos;
-		float distToTarget = toTarget.Length();
-		
-		if(distToTarget < 0.001)
-			return targetData;
-
-		// Calculate projectile velocity & speed
-		vector vel = Vector(0,0,1);
-		if(m_eProjectile.GetPhysics())
-			vel = m_eProjectile.GetPhysics().GetVelocity();
-			
-		float projSpeed = vel.Length();
+		// Lead the target: center-of-mass aimpoint + velocity * time-to-hit.
+		vector targetVel = targetPhys.GetVelocity();
+		float projSpeed = projVel.Length();
 		if(projSpeed < 10.0)
 			projSpeed = 150.0;
-
-		float timeToImpact = distToTarget / projSpeed;
+		
+		float timeToImpact = vector.Distance(centerPos, projPos) / projSpeed;
 		targetData.targetPosition = centerPos + (targetVel * timeToImpact);
 		
 		return targetData;
+	}
+	
+	// Upstream parity: target inside the seeker FOV cone around the missile
+	// velocity vector. Skipped while nearly stationary (launch transient).
+	protected bool CheckSeekerAngle(vector seekerPos, vector seekerDirection, vector targetPos)
+	{
+		if(seekerDirection.Length() < 0.01)
+			return true;
+		
+		vector testPointVector = vector.Direction(seekerPos, targetPos).Normalized();
+		float testDotProduct = vector.Dot(seekerDirection.Normalized(), testPointVector);
+		
+		return testDotProduct > Math.Cos(m_fSeekerFOV * Math.DEG2RAD);
 	}
 
 	protected bool TraceLOS(vector from, vector to, IEntity target, IEntity shooter = null)

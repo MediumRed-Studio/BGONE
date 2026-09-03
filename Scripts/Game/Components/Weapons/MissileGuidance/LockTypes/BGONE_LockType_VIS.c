@@ -78,7 +78,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 				m_eLockingData.lockingProgress = Math.Clamp(m_eLockingData.lockingProgress + (timeSlice / m_iLockOnTime) * 100.0, 0.0, 100.0);
 				m_eLockingData.lockingPos = GetAimPoint(lockingTarget);
 			
-				if(m_eLockingData.lockingProgress >= 100.0 && m_cTargetDataVIS.targetRplId == 0)
+				if(m_eLockingData.lockingProgress >= 100.0 && !m_cTargetDataVIS.targetRplId.IsValid())
 				{
 					RplComponent rpl = RplComponent.Cast(lockingTarget.FindComponent(RplComponent));
 					if(rpl)
@@ -187,17 +187,28 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	}
 	
 	protected bool TraceLOS(vector from, vector to, bool excludeLockedTarget = false)
-	{						
-		ref array<IEntity> exclude = {m_eLauncher.GetRootParent(), lockingTarget };
+	{
+		if(!m_eLauncher)
+			return false;
+		
+		// Build the exclude list with null guards (a null entry poisons the
+		// trace) and always use ExcludeArray: Exclude and ExcludeArray must
+		// never be mixed on one TraceParam.
+		array<IEntity> exclude = {};
+		IEntity root = m_eLauncher.GetRootParent();
+		if(root)
+			exclude.Insert(root);
+		else
+			exclude.Insert(m_eLauncher);
+		if(excludeLockedTarget && lockingTarget && !exclude.Contains(lockingTarget))
+			exclude.Insert(lockingTarget);
+		
 		TraceParam param = new TraceParam();
 		param.Start = from;
 		param.End = to;
 		param.LayerMask = EPhysicsLayerDefs.Projectile;
-		param.Flags = TraceFlags.ANY_CONTACT | TraceFlags.WORLD | TraceFlags.ENTS; 
-		if(excludeLockedTarget)
-			param.ExcludeArray = exclude;
-		else
-			param.Exclude = m_eLauncher.GetRootParent();
+		param.Flags = TraceFlags.ANY_CONTACT | TraceFlags.WORLD | TraceFlags.ENTS;
+		param.ExcludeArray = exclude;
 			
 		float percent = GetGame().GetWorld().TraceMove(param, null);
 		
@@ -271,7 +282,9 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		if(!m_eSoundComponent)
 			return;
 		
-		m_eSoundComponent.SetSignalValueStr("LockingState", currentLockProgress * 100.0);
+		// LockingState signal range is 0-100 and lockingProgress is already
+		// 0-100: pass through without scaling.
+		m_eSoundComponent.SetSignalValueStr("LockingState", currentLockProgress);
 		m_eSoundComponent.Terminate(m_eLockAudioHandle);
 		m_eLockAudioHandle = m_eSoundComponent.SoundEvent("SOUND_LOCKON_DEFAULT");
 	}
@@ -286,8 +299,18 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	
 	protected void DisplayOrUpdateLockonWidget()
 	{
+		if(!m_eLauncher || !GetGame() || !GetGame().GetWorkspace())
+			return;
+		
+		WorkspaceWidget workspace = GetGame().GetWorkspace();
+		BaseWorld world = m_eLauncher.GetWorld();
+		if(!workspace || !world)
+			return;
+		
+		// Widget teardown lives in LockLost (StopLock routes there); no
+		// destructor cleanup so teardown can never touch a dead workspace.
 		if(!m_wDisplay)
-			m_wDisplay = GetGame().GetWorkspace().CreateWidgets(m_sLockOnLayout);
+			m_wDisplay = workspace.CreateWidgets(m_sLockOnLayout);
 			
 		if(!m_wDisplay)
 			return;
@@ -320,9 +343,6 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		
 		vector tlPos = aimFrom + (currentDir.VectorToAngles() + topLeftOffset).AnglesToVector() * (float)m_iMaxLockOnRange;
 		vector brPos = aimFrom + (currentDir.VectorToAngles() + bottomRightOffset).AnglesToVector() * (float)m_iMaxLockOnRange;
-		
-		WorkspaceWidget workspace = m_wDisplay.GetWorkspace();
-		BaseWorld world = m_eLauncher.GetWorld();
 		
 		vector tlScreen = workspace.ProjWorldToScreen(tlPos, world);
 		vector brScreen = workspace.ProjWorldToScreen(brPos, world);
@@ -380,11 +400,13 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	
 	protected void WorldToScreenBounds(out vector boundsMin, out vector boundsMax, Widget widget, vector margins, vector offsets)
 	{
-		if(!lockingTarget)
+		if(!lockingTarget || !widget || !m_eLauncher)
 			return;
 		
 		WorkspaceWidget workspace = widget.GetWorkspace();
 		BaseWorld world = m_eLauncher.GetWorld();
+		if(!workspace || !world)
+			return;
 		
 		float minX = 5000;
 		float minY = 5000;

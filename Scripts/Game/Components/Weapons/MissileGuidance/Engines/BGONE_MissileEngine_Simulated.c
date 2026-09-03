@@ -11,6 +11,10 @@ class BGONE_MissileEngine_Simulated : BGONE_MissileEngine_Base
 	{
 		if(!projectile)
 			return EBGONE_DetonationState.NONE;
+		
+		// Same TTL-expiry detonation as the base engine (see there).
+		if(m_fTimeToLive > 0 && flightTime > m_fTimeToLive)
+			return EBGONE_DetonationState.IMPACT;
 			
 		Physics phys = projectile.GetPhysics();
 		if(!phys)

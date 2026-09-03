@@ -63,6 +63,25 @@ class BGONE_TargetData : ScriptAndConfig
 		m_eTurretEntity = null;
 	}
 	
+	// Single owner of the launch-handshake field order: the server rebuilds
+	// launch TargetData through here so the RpcAsk_ServerLaunch param list
+	// and this class cannot silently diverge.
+	static BGONE_TargetData FromLaunchParams(vector launchPos, vector launchDir, vector targetPosition, float yawChange, float pitchChange, int attackProfileIndex, int armingDistancesIndex, RplId shooterRplId, RplId turretRplId, RplId targetRplId)
+	{
+		BGONE_TargetData targetData = new BGONE_TargetData();
+		targetData.launchPos = launchPos;
+		targetData.launchDir = launchDir;
+		targetData.targetPosition = targetPosition;
+		targetData.yawChange = yawChange;
+		targetData.pitchChange = pitchChange;
+		targetData.attackProfileIndex = attackProfileIndex;
+		targetData.armingDistancesIndex = armingDistancesIndex;
+		targetData.shooterRplId = shooterRplId;
+		targetData.turretRplId = turretRplId;
+		targetData.targetRplId = targetRplId;
+		return targetData;
+	}
+	
 	// Replication Methods (68 Bytes Exact Snapshot)
 	static bool Extract(BGONE_TargetData instance, ScriptCtx ctx, SSnapSerializerBase snapshot)
 	{
