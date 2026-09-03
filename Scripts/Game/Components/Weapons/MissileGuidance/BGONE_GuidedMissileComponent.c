@@ -19,6 +19,12 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	protected Projectile m_eOwner;
 	protected float m_fFlightTime;
 	protected bool m_bGuidanceActive = false;
+	protected bool m_bDetonated = false;
+	// Replicated from authority to all proxies (type codec: the static
+	// Extract/Inject/Encode/Decode/SnapCompare/PropCompare/EncodeDelta/
+	// DecodeDelta in BGONE_TargetData). Authority writes it in onLaunched
+	// (which BumpMe's the item); proxies treat it as read-only flight truth.
+	[RplProp()]
 	protected ref BGONE_TargetData m_eCurrentTargetData;
 	protected RplComponent m_RplComponent;
 	protected BGONE_GuidedMissileLauncherComponent m_LauncherComp;
@@ -62,10 +68,20 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	
 	void onLaunched(BGONE_TargetData targetData, BGONE_GuidedMissileLauncherComponent launcher)
 	{
+		// Terminal-state guard (defense in depth): refuse re-init of a
+		// missile that is already guiding or has already detonated, e.g. a
+		// delayed duplicate server handshake racing a local detonation.
+		if(m_bGuidanceActive || m_bDetonated)
+		{
+			Print("BGONE - onLaunched refused: missile already launched", LogLevel.WARNING);
+			return;
+		}
+		
+		if(!targetData)
+			return;
+		
 		m_LauncherComp = launcher;
 		m_eCurrentTargetData = targetData;
-		if(!m_eCurrentTargetData)
-			return;
 			
 		if(!m_eOwner)
 			m_eOwner = Projectile.Cast(GetOwner());
@@ -82,6 +98,12 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		
 		m_fFlightTime = 0;
 		m_bGuidanceActive = true;
+		m_bDetonated = false;
+		
+		// The RplProp snapshot is only compared/sent for items queued by
+		// BumpMe: without this the server copy never replicates to proxies.
+		// Harmless on non-authority copies (only authority replicates).
+		Replication.BumpMe();
 	}
 	
 	override void EOnSimulate(IEntity owner, float timeSlice)
@@ -116,9 +138,16 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		else if(m_vLastTargetPosition != Vector(0,0,0))
 			m_eCurrentTargetData.targetPosition = m_vLastTargetPosition;
 		
-		// Detonation handling
-		if(m_eCurrentTargetData.detonated > EBGONE_DetonationState.NONE)
+		// Detonation handling. Idempotent: the local prediction flips first
+		// and the authoritative server snapshot/RPC arrives later, so guard
+		// against double trigger + double FX on the same missile.
+		// m_bDetonated is intentionally local-only (not an RplProp): it is a
+		// per-copy double-FX latch that must survive RplProp overwrites of
+		// m_eCurrentTargetData, so a late server snapshot can never resurrect
+		// guidance once this copy has detonated.
+		if(m_eCurrentTargetData.detonated > EBGONE_DetonationState.NONE && !m_bDetonated)
 		{
+			m_bDetonated = true;
 			m_bGuidanceActive = false;
 			bool down = (m_eCurrentTargetData.detonated == EBGONE_DetonationState.AIRBURST);
 			vector explodePos = m_eOwner.GetOrigin();
@@ -206,9 +235,11 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	[RplRpc(RplChannel.Reliable, RplRcver.Broadcast)]
 	void RpcDo_Explode(vector pos, bool down)
 	{
-		if(!m_eOwner)
+		if(!m_eOwner || m_bDetonated)
 			return;
-			
+		
+		m_bDetonated = true;
+		m_bGuidanceActive = false;
 		m_eOwner.SetOrigin(pos);
 		if(down)
 		{

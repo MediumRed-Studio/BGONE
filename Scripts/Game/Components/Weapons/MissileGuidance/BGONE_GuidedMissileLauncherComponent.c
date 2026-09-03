@@ -26,9 +26,13 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	protected bool m_bLocking;
 	protected bool m_bListenersRegistered = false;
 	
-	protected ref BGONE_TargetData m_eLastTargetData;
 	protected BGONE_GuidedMissileComponent m_eLastMissile;
 	protected BGONE_GuidedMissileComponent m_eLastMissileSaclos;
+	// Single-shot assumption: one pending server-launch slot (reload >> 500
+	// ms). A second launch inside the retry window drops with a warning.
+	protected ref BGONE_TargetData m_PendingServerLaunch;
+	protected RplId m_PendingServerMissile;
+	protected const int PENDING_LAUNCH_RETRY_MS = 500;
 	
 	// Methods for handling ownership change and action context (de)activation.
 	protected override void EOnActivate(IEntity owner)
@@ -58,6 +62,12 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		{
 			RemoveListeners();
 		}
+		
+		// Cancel any pending server-launch retry so the timer cannot fire
+		// into a destroyed/despawned launcher and bind a live missile to it.
+		m_PendingServerLaunch = null;
+		if(GetGame())
+			GetGame().GetCallqueue().Remove(TryPendingServerLaunch);
 	}
 	
 	protected void UpdateOccupantAndOwnership()
@@ -221,16 +231,35 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			return;
 		}
 		
-		if(m_InputManager)
-			m_InputManager.ActivateContext("CharacterWeaponGuidedLauncher");
-		
 		if(m_eLockTypeComponent)
 			m_eLockTypeComponent.UpdateLock(timeSlice);
+	}
+	
+	// Mirrors the ADS checks in EOnFixedFrame so the lock action stays
+	// inert off ADS (the input context itself is active from equip).
+	protected bool IsAdsActive()
+	{
+		if(m_eCurrentPlayer && m_eCurrentPlayer.GetWeaponManager())
+		{
+			BaseWeaponComponent weaponComp = m_eCurrentPlayer.GetWeaponManager().GetCurrentWeapon();
+			if(weaponComp && weaponComp.IsSightADSActive())
+				return true;
+		}
+		
+		if(m_eTurretController && m_eTurretController.IsWeaponADS())
+			return true;
+		
+		return false;
 	}
 	
 	protected void SetLockingState(float value, EActionTrigger reason)
 	{
 		if(m_RplComponent && m_RplComponent.IsRemoteProxy())
+			return;
+		
+		// The input context is active from equip (not ADS-gated), so ignore
+		// lock-start off ADS. Release (UP) always stops: fail-safe.
+		if(reason == EActionTrigger.DOWN && !IsAdsActive())
 			return;
 		
 		m_bLocking = (reason == EActionTrigger.DOWN);
@@ -243,6 +272,10 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		}
 	}
 	
+	// Lock tones are per-locker UI feedback and stay local by design: the
+	// lock runs where the occupant sits (FixedFrame is proxy-gated), so the
+	// locker always hears their own tone without any relay. A game-wide
+	// broadcast would blip uninvolved players' launchers, so no relay exists.
 	protected void LockStartAcquire(BGONE_LockingData_BASE lockingData)
 	{
 		if(m_eLockTypeComponent)
@@ -276,31 +309,52 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			return;
 		
 		BGONE_TargetData targetData;
-		if(m_eLastTargetData)
-		{
-			targetData = m_eLastTargetData;
-		}
-		else
-		{
-			if(m_eLockTypeComponent)
-				targetData = m_eLockTypeComponent.GetCurrentTargetData();
-				
-			if(!targetData)
-				targetData = new BGONE_TargetData();
+		if(m_eLockTypeComponent)
+			targetData = m_eLockTypeComponent.GetCurrentTargetData();
 			
-			targetData.launchPos = entity.GetOrigin();
-			targetData.launchDir = entity.GetYawPitchRoll().AnglesToVector();
-			targetData.attackProfileIndex = m_iCurrentAttackModeIndex;
-			targetData.armingDistancesIndex = m_iCurrentArmingDistanceIndex;
-			
-			if(m_eTurret && m_eTurret.GetRplComponent())
-				targetData.turretRplId = m_eTurret.GetRplComponent().Id();
-		}
+		if(!targetData)
+			targetData = new BGONE_TargetData();
 		
+		targetData.launchPos = entity.GetOrigin();
+		targetData.launchDir = entity.GetYawPitchRoll().AnglesToVector();
+		targetData.attackProfileIndex = m_iCurrentAttackModeIndex;
+		targetData.armingDistancesIndex = m_iCurrentArmingDistanceIndex;
+		
+		// Launcher owns the occupant: stamp shooter provenance for kill
+		// credit on the authority copy. Locks only set this for SACLOS, so
+		// VIS/PLOS would otherwise detonate unattributed.
+		if(!targetData.shooterRplId.IsValid() && m_eCurrentPlayer && m_eCurrentPlayer.GetRplComponent())
+			targetData.shooterRplId = m_eCurrentPlayer.GetRplComponent().Id();
+		
+		if(m_eTurret && m_eTurret.GetRplComponent())
+			targetData.turretRplId = m_eTurret.GetRplComponent().Id();
+		
+		// Local launch: initialize the missile immediately (host-authority
+		// guides from here; owner-client copies never simulate, so this is
+		// prediction state the server RplProp snapshot will overwrite).
 		m_eLastMissile.onLaunched(targetData, this);
-		Rpc(RpcAsk_SendTargetData, targetData);
+		m_eLastMissileSaclos = m_eLastMissile;
 		
-		m_eLastTargetData = null;
+		// Authority already launched above: skip the server RPC to avoid a
+		// listen-server loopback double-launch. Owner-clients forward the
+		// launch so the server holds the authoritative copy (replicated via
+		// the missile's m_eCurrentTargetData RplProp).
+		bool isAuthority = m_RplComponent && m_RplComponent.Role() == RplRole.Authority;
+		if(m_RplComponent && !isAuthority)
+		{
+			RplId missileRplId;
+			RplComponent missileRpl = RplComponent.Cast(entity.FindComponent(RplComponent));
+			if(!missileRpl)
+			{
+				Print("BGONE - OnLaunch: missile has no RplComponent, server will not guide it", LogLevel.WARNING);
+				m_eLastMissile = null;
+				return;
+			}
+			missileRplId = missileRpl.Id();
+			RplId shooterRplId = targetData.shooterRplId;
+			Rpc(RpcAsk_ServerLaunch, missileRplId, targetData.launchPos, targetData.launchDir, targetData.targetPosition, targetData.yawChange, targetData.pitchChange, targetData.attackProfileIndex, targetData.armingDistancesIndex, shooterRplId, targetData.turretRplId, targetData.targetRplId);
+		}
+		
 		m_eLastMissile = null;
 	}
 	
@@ -345,19 +399,66 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	}
 	
 	[RplRpc(RplChannel.Reliable, RplRcver.Server)]
-	void RpcAsk_SendTargetData(BGONE_TargetData targetData)
+	void RpcAsk_ServerLaunch(RplId missileRplId, vector launchPos, vector launchDir, vector targetPosition, float yawChange, float pitchChange, int attackProfileIndex, int armingDistancesIndex, RplId shooterRplId, RplId turretRplId, RplId targetRplId)
 	{
-		if(!m_eLastMissile)
+		if(!missileRplId.IsValid() || !IsValidVector(launchPos) || !IsValidVector(launchDir) || !IsValidVector(targetPosition) || attackProfileIndex < 0 || armingDistancesIndex < 0)
 		{
-			m_eLastTargetData = targetData;
+			Print("BGONE - RpcAsk_ServerLaunch: rejected invalid launch data", LogLevel.WARNING);
 			return;
 		}
 		
-		m_eLastMissileSaclos = m_eLastMissile;
-		m_eLastMissile.onLaunched(targetData, this);
+		BGONE_TargetData targetData = BGONE_TargetData.FromLaunchParams(launchPos, launchDir, targetPosition, yawChange, pitchChange, attackProfileIndex, armingDistancesIndex, shooterRplId, turretRplId, targetRplId);
 		
-		m_eLastTargetData = null;
+		if(!TryServerLaunch(missileRplId, targetData))
+		{
+			// Replication race: the just-spawned missile is not known to the
+			// server yet. Stash and retry once shortly; drop with a warning
+			// if the slot is busy or the retry also misses.
+			if(m_PendingServerLaunch)
+			{
+				Print("BGONE - RpcAsk_ServerLaunch: pending slot busy, dropping launch", LogLevel.WARNING);
+				return;
+			}
+			m_PendingServerMissile = missileRplId;
+			m_PendingServerLaunch = targetData;
+			GetGame().GetCallqueue().CallLater(TryPendingServerLaunch, PENDING_LAUNCH_RETRY_MS, false);
+		}
+	}
+	
+	protected bool TryServerLaunch(RplId missileRplId, BGONE_TargetData targetData)
+	{
+		RplComponent missileRpl = RplComponent.Cast(Replication.FindItem(missileRplId));
+		if(!missileRpl || !missileRpl.GetEntity())
+			return false;
+		
+		BGONE_GuidedMissileComponent missile = BGONE_GuidedMissileComponent.Cast(missileRpl.GetEntity().FindComponent(BGONE_GuidedMissileComponent));
+		if(!missile)
+		{
+			// Known entity, not a guided missile (stale/spoofed id): consume
+			// the slot without retrying, warn only.
+			Print("BGONE - TryServerLaunch: entity is not a guided missile", LogLevel.WARNING);
+			return true;
+		}
+		
+		missile.onLaunched(targetData, this);
+		m_eLastMissileSaclos = missile;
 		m_eLastMissile = null;
+		return true;
+	}
+	
+	protected void TryPendingServerLaunch()
+	{
+		// Empty slot (consumed or cancelled): nothing to do. The RplId is
+		// only meaningful alongside a non-null launch; it was validated at
+		// RPC entry so no IsValid re-check is needed here.
+		if(!m_PendingServerLaunch)
+			return;
+		
+		RplId missileRplId = m_PendingServerMissile;
+		BGONE_TargetData targetData = m_PendingServerLaunch;
+		m_PendingServerLaunch = null;
+		if(!TryServerLaunch(missileRplId, targetData))
+			Print("BGONE - TryPendingServerLaunch: missile still unknown, server will not guide it", LogLevel.WARNING);
 	}
 	
 	protected void RegisterListeners()
@@ -388,6 +489,8 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		{
 			m_InputManager.AddActionListener("BGONELock", EActionTrigger.DOWN, SetLockingState);
 			m_InputManager.AddActionListener("BGONELock", EActionTrigger.UP, SetLockingState);
+			// Activated once with the listeners (was per-frame in FixedFrame).
+			m_InputManager.ActivateContext("CharacterWeaponGuidedLauncher");
 		}
 		
 		m_bListenersRegistered = true;
@@ -416,6 +519,9 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		{
 			m_InputManager.RemoveActionListener("BGONELock", EActionTrigger.DOWN, SetLockingState);
 			m_InputManager.RemoveActionListener("BGONELock", EActionTrigger.UP, SetLockingState);
+			// No DeactivateContext: InputManager exposes only
+			// ActivateContext(string, int) in 1.8, and the old code never
+			// deactivated either (activated per-frame while ADS).
 		}
 		
 		m_bListenersRegistered = false;
