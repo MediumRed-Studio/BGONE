@@ -34,6 +34,10 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	// ms). A second launch inside the retry window drops with a warning.
 	protected ref BGONE_TargetData m_PendingServerLaunch;
 	protected RplId m_PendingServerMissile;
+	// Missile the outstanding retry timer was scheduled for. The timer
+	// consumes the slot only on identity match, so it can never launch a
+	// different missile staged afterwards.
+	protected RplId m_PendingRetryMissile;
 	protected const int PENDING_LAUNCH_RETRY_MS = 500;
 	
 	// Methods for handling ownership change and action context (de)activation.
@@ -436,7 +440,10 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		if(!missileRplId.IsValid() || attackProfileIndex < 0 || armingDistancesIndex < 0)
 		{
 			Print("BGONE - RpcAsk_ServerLaunchData: rejected invalid launch data", LogLevel.WARNING);
-			m_PendingServerLaunch = null;
+			// Only clear our own partial: a sibling launch's retry stash
+			// must survive another missile's invalid data.
+			if(m_PendingServerLaunch && m_PendingServerMissile == missileRplId)
+				m_PendingServerLaunch = null;
 			return;
 		}
 		
@@ -467,6 +474,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			}
 			m_PendingServerMissile = missileRplId;
 			m_PendingServerLaunch = targetData;
+			m_PendingRetryMissile = missileRplId;
 			GetGame().GetCallqueue().CallLater(TryPendingServerLaunch, PENDING_LAUNCH_RETRY_MS, false);
 		}
 	}
@@ -494,11 +502,12 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	
 	protected void TryPendingServerLaunch()
 	{
-		// Empty slot (consumed or cancelled): nothing to do. The RplId is
-		// only meaningful alongside a non-null launch; liveness is decided
-		// by the FindItem null-check in TryServerLaunch, not by re-validating
-		// the id here.
-		if(!m_PendingServerLaunch)
+		// Empty slot (consumed or cancelled): nothing to do. Identity check:
+		// the slot may have been repurposed after this timer was scheduled;
+		// never launch anything but the missile this retry was scheduled for.
+		// Liveness itself is decided by the FindItem null-check in
+		// TryServerLaunch, not by re-validating the id here.
+		if(!m_PendingServerLaunch || m_PendingServerMissile != m_PendingRetryMissile)
 			return;
 		
 		RplId missileRplId = m_PendingServerMissile;
