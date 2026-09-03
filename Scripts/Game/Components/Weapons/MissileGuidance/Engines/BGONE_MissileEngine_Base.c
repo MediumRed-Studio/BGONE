@@ -13,7 +13,7 @@ class BGONE_MissileEngine_Base : ScriptAndConfig
 	[Attribute("200", UIWidgets.Slider, "Max Powered Speed (Meters per Second)", "0 1500 1", category: "BGONE")]
 	protected float m_fMaxSpeed;
 	
-	[Attribute("30", UIWidgets.Slider, "Total Flight Lifetime Before Fuel / Battery Exhaustion (must match seeker TTL + MissileMove TimeToLive in the ammo prefab; per-weapon: PLOS 6.1, SACLOS 12, VIS 30)", "0 120 1", category: "BGONE")]
+	[Attribute("30", UIWidgets.Slider, "Total Flight Lifetime Before Fuel / Battery Exhaustion (ammo prefab overrides win; must match seeker TTL + MissileMove TimeToLive there — per-weapon: PLOS 6.1, SACLOS 12, VIS 30)", "0 120 1", category: "BGONE")]
 	protected float m_fTimeToLive;
 
 	float GetThrustDelay()
@@ -42,8 +42,10 @@ class BGONE_MissileEngine_Base : ScriptAndConfig
 			return EBGONE_DetonationState.NONE;
 		
 		// Upstream parity: engine TTL expiry detonates. This is the PLOS
-		// warhead path (PLOS has no seeker TTL); SACLOS/VIS seekers fire
-		// first on ties since the seeker runs earlier in EOnSimulate.
+		// warhead path (PLOS has no seeker TTL, so engine + MissileMove are
+		// its only timers); SACLOS/VIS seekers fire first on ties since the
+		// seeker runs earlier in EOnSimulate. Expiry detonates on the next
+		// simulate tick (the flag is assigned after the detonation check).
 		if(m_fTimeToLive > 0 && flightTime > m_fTimeToLive)
 			return EBGONE_DetonationState.IMPACT;
 			

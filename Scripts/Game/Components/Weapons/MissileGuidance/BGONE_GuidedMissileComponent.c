@@ -22,8 +22,9 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	protected bool m_bDetonated = false;
 	// Replicated from authority to all proxies (type codec: the static
 	// Extract/Inject/Encode/Decode/SnapCompare/PropCompare/EncodeDelta/
-	// DecodeDelta in BGONE_TargetData). Authority writes it in onLaunched
-	// (which BumpMe's the item); proxies treat it as read-only flight truth.
+	// DecodeDelta in BGONE_TargetData). Authority writes it in onLaunched;
+	// proxies never simulate from it — they are positioned by the 20 Hz
+	// transform sync and only read it for shooter credit on detonation.
 	[RplProp()]
 	protected ref BGONE_TargetData m_eCurrentTargetData;
 	protected RplComponent m_RplComponent;
@@ -102,8 +103,9 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		
 		// The RplProp snapshot is only compared/sent for items queued by
 		// BumpMe: without this the server copy never replicates to proxies.
-		// Harmless on non-authority copies (only authority replicates).
-		Replication.BumpMe();
+		// Authority-only by construction (proxies replicate nothing outward).
+		if(m_RplComponent && m_RplComponent.Role() == RplRole.Authority)
+			Replication.BumpMe();
 	}
 	
 	override void EOnSimulate(IEntity owner, float timeSlice)
@@ -138,9 +140,9 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		else if(m_vLastTargetPosition != Vector(0,0,0))
 			m_eCurrentTargetData.targetPosition = m_vLastTargetPosition;
 		
-		// Detonation handling. Idempotent: the local prediction flips first
-		// and the authoritative server snapshot/RPC arrives later, so guard
-		// against double trigger + double FX on the same missile.
+		// Detonation handling. Idempotent: the local copy flips first and
+		// the authoritative broadcast arrives later, so guard against
+		// double trigger + double FX on the same missile.
 		// m_bDetonated is intentionally local-only (not an RplProp): it is a
 		// per-copy double-FX latch that must survive RplProp overwrites of
 		// m_eCurrentTargetData, so a late server snapshot can never resurrect

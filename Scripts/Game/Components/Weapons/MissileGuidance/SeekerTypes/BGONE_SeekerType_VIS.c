@@ -1,10 +1,10 @@
 [BaseContainerProps()]
 class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 {
-	[Attribute("5.6", UIWidgets.Slider, "How many seconds until the missile self destructs (must match engine TTL + MissileMove TimeToLive in the ammo prefab)", "0 30 0.1", category: "BGONE")]
+	[Attribute("5.6", UIWidgets.Slider, "How many seconds until the missile self destructs (ammo prefab overrides win; must match engine TTL + MissileMove TimeToLive there)", "0 30 0.1", category: "BGONE")]
 	protected float m_fTimeToLive;
 
-	[Attribute("30", UIWidgets.Slider, "Seeker half-angle in degrees: target must stay within this deviation from the missile velocity vector", "0 90 0.1", category: "BGONE")]
+	[Attribute("30", UIWidgets.Slider, "Seeker half-angle in degrees: target must stay within this deviation from the missile velocity vector (upstream parity values: 30 VIS / 60 SACLOS)", "0 90 0.1", category: "BGONE")]
 	protected float m_fSeekerFOV;
 	
 	[Attribute("2.0", UIWidgets.Slider, "How many seconds after target is lost until the missile self destructs", "0 100 0.1", category: "BGONE")]
@@ -47,35 +47,45 @@ class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 		if(!targetData.targetRplId.IsValid())
 		{
 			// Fired without a lock (e.g. during acquire): no track to gate
-			// on, so run the no-target timer to expiry instead of coasting
-			// forever.
+			// on, so coast on the partial aimpoint and run the no-target
+			// timer to expiry instead of flying forever. Deliberately NOT
+			// zeroed: zero would steer at the world origin via the engine.
 			if(flightTime - m_fTargetLastSeenTime > m_fNoTargetDestructTime)
 			{
 				targetData.detonated = EBGONE_DetonationState.IMPACT;
 				return targetData;
 			}
 			
-			targetData.targetPosition = Vector(0,0,0);
 			return targetData;
 		}
 		
 		IEntity target = targetData.GetTargetEntity();
 		if(!target)
 		{
-			// Target destroyed mid-flight: same timer, then airburst.
+			// Target destroyed mid-flight: keep the last transmitted
+			// position (never zero: zero would steer at the world origin)
+			// and run the same timer, then impact-detonate.
 			if(flightTime - m_fTargetLastSeenTime > m_fNoTargetDestructTime)
 			{
 				targetData.detonated = EBGONE_DetonationState.IMPACT;
 				return targetData;
 			}
 			
-			targetData.targetPosition = Vector(0,0,0);
 			return targetData;
 		}
 		
 		Physics targetPhys = target.GetPhysics();
 		if(!targetPhys)
+		{
+			// No physics to aim at: same no-target timer, not forever.
+			if(flightTime - m_fTargetLastSeenTime > m_fNoTargetDestructTime)
+			{
+				targetData.detonated = EBGONE_DetonationState.IMPACT;
+				return targetData;
+			}
+			
 			return targetData;
+		}
 		
 		vector centerOfMass = targetPhys.GetCenterOfMass();
 		vector centerPos;

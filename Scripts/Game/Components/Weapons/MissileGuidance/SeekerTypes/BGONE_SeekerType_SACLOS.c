@@ -1,10 +1,10 @@
 [BaseContainerProps()]
 class BGONE_SeekerType_SACLOS : BGONE_SeekerType_Base
 {
-	[Attribute("5.6", UIWidgets.Slider, "How Many Seconds Until The Missile Self Destructs (must match engine TTL + MissileMove TimeToLive in the ammo prefab)", "0 30 0.1", category: "BGONE")]
+	[Attribute("5.6", UIWidgets.Slider, "How Many Seconds Until The Missile Self Destructs (ammo prefab overrides win; must match engine TTL + MissileMove TimeToLive there)", "0 30 0.1", category: "BGONE")]
 	protected float m_fTimeToLive;
 
-	[Attribute("60", UIWidgets.Slider, "Seeker Half-Angle In Degrees: Missile Must Stay Within This Deviation From The Shooter Aim Line", "0 90 0.1", category: "BGONE")]
+	[Attribute("60", UIWidgets.Slider, "Seeker Half-Angle In Degrees: Missile Must Stay Within This Deviation From The Shooter Aim Line (upstream parity values: 30 VIS / 60 SACLOS)", "0 90 0.1", category: "BGONE")]
 	protected float m_fSeekerFOV;
 	
 	[Attribute("100", UIWidgets.Slider, "Min Distance From Launch Before Missile Arms", "0 1000 1", category: "BGONE")]

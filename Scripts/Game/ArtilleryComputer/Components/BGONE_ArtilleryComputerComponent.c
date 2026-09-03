@@ -113,6 +113,8 @@ class BGONE_ArtilleryComputerComponent : ScriptGameComponent
 		// (x, 0, y): transform to canvas-world with indices [0],[2], the
 		// vanilla SCR_MapCommandCursor pattern and what upstream used. The
 		// fork's [0],[1] variant read the constant 0 and aimed off-map.
+		// Rounded to whole pixels: ScreenToWorld takes ints (editors show
+		// the implicit float->int narrowing as a warning otherwise).
 		// In-game check: two clicks 2 km apart N/S must move impacts in Z;
 		// if every click lands on one latitude, this assumption is wrong.
 		float worldX, worldZ;
