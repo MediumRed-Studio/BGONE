@@ -351,7 +351,11 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			}
 			missileRplId = missileRpl.Id();
 			RplId shooterRplId = targetData.shooterRplId;
-			Rpc(RpcAsk_ServerLaunch, missileRplId, targetData.launchPos, targetData.launchDir, targetData.targetPosition, targetData.yawChange, targetData.pitchChange, targetData.attackProfileIndex, targetData.armingDistancesIndex, shooterRplId, targetData.turretRplId, targetData.targetRplId);
+			// Two calls: Rpc() has a lower arity cap than RplRpc handlers,
+			// so the 11-field handshake will not fit in one call. Both are
+			// Reliable, hence ordered: move half always lands first.
+			Rpc(RpcAsk_ServerLaunchMove, missileRplId, targetData.launchPos, targetData.launchDir, targetData.targetPosition, targetData.yawChange, targetData.pitchChange);
+			Rpc(RpcAsk_ServerLaunchData, missileRplId, targetData.attackProfileIndex, targetData.armingDistancesIndex, shooterRplId, targetData.turretRplId, targetData.targetRplId);
 		}
 		else if(!m_RplComponent)
 		{
@@ -401,16 +405,55 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		}
 	}
 	
+	// Server launch handshake, move half (6 params: Rpc() arity cap).
+	// Stashes a partial TargetData; the data half completes it. Reliable +
+	// ordered, so this always lands before its RpcAsk_ServerLaunchData.
 	[RplRpc(RplChannel.Reliable, RplRcver.Server)]
-	void RpcAsk_ServerLaunch(RplId missileRplId, vector launchPos, vector launchDir, vector targetPosition, float yawChange, float pitchChange, int attackProfileIndex, int armingDistancesIndex, RplId shooterRplId, RplId turretRplId, RplId targetRplId)
+	void RpcAsk_ServerLaunchMove(RplId missileRplId, vector launchPos, vector launchDir, vector targetPosition, float yawChange, float pitchChange)
 	{
-		if(!missileRplId.IsValid() || !IsValidVector(launchPos) || !IsValidVector(launchDir) || !IsValidVector(targetPosition) || yawChange != yawChange || pitchChange != pitchChange || attackProfileIndex < 0 || armingDistancesIndex < 0)
+		if(!missileRplId.IsValid() || !IsValidVector(launchPos) || !IsValidVector(launchDir) || !IsValidVector(targetPosition) || yawChange != yawChange || pitchChange != pitchChange)
 		{
-			Print("BGONE - RpcAsk_ServerLaunch: rejected invalid launch data", LogLevel.WARNING);
+			Print("BGONE - RpcAsk_ServerLaunchMove: rejected invalid launch data", LogLevel.WARNING);
 			return;
 		}
 		
-		BGONE_TargetData targetData = BGONE_TargetData.FromLaunchParams(launchPos, launchDir, targetPosition, yawChange, pitchChange, attackProfileIndex, armingDistancesIndex, shooterRplId, turretRplId, targetRplId);
+		if(m_PendingServerLaunch)
+		{
+			Print("BGONE - RpcAsk_ServerLaunchMove: pending slot busy, dropping launch", LogLevel.WARNING);
+			return;
+		}
+		
+		RplId invalidId;
+		m_PendingServerMissile = missileRplId;
+		m_PendingServerLaunch = BGONE_TargetData.FromLaunchParams(launchPos, launchDir, targetPosition, yawChange, pitchChange, 0, 0, invalidId, invalidId, invalidId);
+	}
+	
+	// Server launch handshake, data half (6 params). Completes the pending
+	// partial and launches; falls back to stash + one retry on miss.
+	[RplRpc(RplChannel.Reliable, RplRcver.Server)]
+	void RpcAsk_ServerLaunchData(RplId missileRplId, int attackProfileIndex, int armingDistancesIndex, RplId shooterRplId, RplId turretRplId, RplId targetRplId)
+	{
+		if(!missileRplId.IsValid() || attackProfileIndex < 0 || armingDistancesIndex < 0)
+		{
+			Print("BGONE - RpcAsk_ServerLaunchData: rejected invalid launch data", LogLevel.WARNING);
+			m_PendingServerLaunch = null;
+			return;
+		}
+		
+		if(!m_PendingServerLaunch || m_PendingServerMissile != missileRplId)
+		{
+			Print("BGONE - RpcAsk_ServerLaunchData: no matching move half, dropping launch", LogLevel.WARNING);
+			return;
+		}
+		
+		BGONE_TargetData targetData = m_PendingServerLaunch;
+		m_PendingServerLaunch = null;
+		targetData.attackProfileIndex = attackProfileIndex;
+		targetData.armingDistancesIndex = armingDistancesIndex;
+		targetData.shooterRplId = shooterRplId;
+		targetData.turretRplId = turretRplId;
+		targetData.targetRplId = targetRplId;
+		targetData.InvalidateEntities();
 		
 		if(!TryServerLaunch(missileRplId, targetData))
 		{
@@ -419,7 +462,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			// if the slot is busy or the retry also misses.
 			if(m_PendingServerLaunch)
 			{
-				Print("BGONE - RpcAsk_ServerLaunch: pending slot busy, dropping launch", LogLevel.WARNING);
+				Print("BGONE - RpcAsk_ServerLaunchData: pending slot busy, dropping launch", LogLevel.WARNING);
 				return;
 			}
 			m_PendingServerMissile = missileRplId;

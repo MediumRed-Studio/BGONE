@@ -64,21 +64,21 @@ class BGONE_TargetData : ScriptAndConfig
 	}
 	
 	// Single owner of the launch-handshake field order: the server rebuilds
-	// launch TargetData through here so the RpcAsk_ServerLaunch param list
-	// and this class cannot silently diverge.
-	static BGONE_TargetData FromLaunchParams(vector launchPos, vector launchDir, vector targetPosition, float yawChange, float pitchChange, int attackProfileIndex, int armingDistancesIndex, RplId shooterRplId, RplId turretRplId, RplId targetRplId)
+	// launch TargetData through here so the RpcAsk_ServerLaunchMove/Data
+	// param lists and this class cannot silently diverge.
+	static BGONE_TargetData FromLaunchParams(vector vLaunchPos, vector vLaunchDir, vector vTargetPos, float fYawChange, float fPitchChange, int iAttackProfile, int iArmingIndex, RplId idShooter, RplId idTurret, RplId idTarget)
 	{
 		BGONE_TargetData targetData = new BGONE_TargetData();
-		targetData.launchPos = launchPos;
-		targetData.launchDir = launchDir;
-		targetData.targetPosition = targetPosition;
-		targetData.yawChange = yawChange;
-		targetData.pitchChange = pitchChange;
-		targetData.attackProfileIndex = attackProfileIndex;
-		targetData.armingDistancesIndex = armingDistancesIndex;
-		targetData.shooterRplId = shooterRplId;
-		targetData.turretRplId = turretRplId;
-		targetData.targetRplId = targetRplId;
+		targetData.launchPos = vLaunchPos;
+		targetData.launchDir = vLaunchDir;
+		targetData.targetPosition = vTargetPos;
+		targetData.yawChange = fYawChange;
+		targetData.pitchChange = fPitchChange;
+		targetData.attackProfileIndex = iAttackProfile;
+		targetData.armingDistancesIndex = iArmingIndex;
+		targetData.shooterRplId = idShooter;
+		targetData.turretRplId = idTurret;
+		targetData.targetRplId = idTarget;
 		return targetData;
 	}
 	
