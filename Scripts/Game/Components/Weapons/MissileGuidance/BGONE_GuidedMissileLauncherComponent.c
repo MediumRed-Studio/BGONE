@@ -59,9 +59,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		
 		if(m_vehicleEventHandler)
 		{
-			m_vehicleEventHandler.RemoveScriptHandler("OnCompartmentEntered", this, OnCompartmentEntered);
-			m_vehicleEventHandler.RemoveScriptHandler("OnCompartmentLeft", this, OnCompartmentLeft);
-			m_vehicleEventHandler = null;
+			ReleaseVehicleHandler();
 		}
 		
 		if(m_eventHandler)
@@ -71,9 +69,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		
 		// Cancel any pending server-launch retry so the timer cannot fire
 		// into a destroyed/despawned launcher and bind a live missile to it.
-		m_PendingServerLaunch = null;
-		if(GetGame())
-			GetGame().GetCallqueue().Remove(TryPendingServerLaunch);
+		CancelPendingLaunch();
 	}
 	
 	protected void UpdateOccupantAndOwnership()
@@ -106,6 +102,9 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		}
 		else
 		{
+			m_eTurret = null;
+			m_eTurretController = null;
+			ReleaseVehicleHandler();
 			m_eCurrentPlayer = SCR_ChimeraCharacter.Cast(m_eOwner.GetRootParent());
 		}
 		
@@ -121,6 +120,44 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			if(ownerIdentity.IsValid())
 				Rpc(RpcAsk_GiveOwnerShip, ownerIdentity);
 		}
+	}
+	
+	// Holder liveness for the FixedFrame self-heal: true while the bound
+	// player still has this weapon (hands or turret compartment).
+	protected bool IsStillHeldByPlayer()
+	{
+		if(!m_eCurrentPlayer)
+			return false;
+		
+		if(m_eTurret)
+		{
+			if(!m_eTurretController)
+				return false;
+			
+			BaseCompartmentSlot slot = m_eTurretController.GetCompartmentSlot();
+			return slot && slot.GetOccupant() == m_eCurrentPlayer;
+		}
+		
+		return m_eOwner.GetRootParent() == m_eCurrentPlayer;
+	}
+	
+	// Shared teardown fragments (single owners; called from EOnDeactivate,
+	// the FixedFrame unbind path, and compartment/holder transitions).
+	protected void ReleaseVehicleHandler()
+	{
+		if(!m_vehicleEventHandler)
+			return;
+		
+		m_vehicleEventHandler.RemoveScriptHandler("OnCompartmentEntered", this, OnCompartmentEntered);
+		m_vehicleEventHandler.RemoveScriptHandler("OnCompartmentLeft", this, OnCompartmentLeft);
+		m_vehicleEventHandler = null;
+	}
+	
+	protected void CancelPendingLaunch()
+	{
+		m_PendingServerLaunch = null;
+		if(GetGame())
+			GetGame().GetCallqueue().Remove(TryPendingServerLaunch);
 	}
 	
 	protected void OnCompartmentEntered(IEntity vehicle, BaseCompartmentManagerComponent manager, int mgrID, int slotID, IEntity occupant)
@@ -150,6 +187,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		if(m_eCurrentPlayer && m_eCurrentPlayer == occupant)
 		{
 			RemoveListeners();
+			CancelPendingLaunch();
 			m_eCurrentPlayer = null;
 		}
 	}
@@ -214,7 +252,29 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	
 	override void EOnFixedFrame(IEntity owner, float timeSlice)
 	{
-		if((m_RplComponent && m_RplComponent.IsRemoteProxy()) || !m_eCurrentPlayer)
+		if(m_RplComponent && m_RplComponent.IsRemoteProxy())
+			return;
+		
+		// Self-healing occupant binding: EOnActivate fires at spawn/stream,
+		// not on equip, so a table-picked launcher would otherwise never
+		// bind its player (no listeners, no lock, no fire-handshake).
+		// Re-resolve until bound; release when the holder is gone/changed.
+		if(!m_eCurrentPlayer)
+		{
+			UpdateOccupantAndOwnership();
+		}
+		else if(!IsStillHeldByPlayer())
+		{
+			RemoveListeners();
+			ReleaseVehicleHandler();
+			CancelPendingLaunch();
+			m_eCurrentPlayer = null;
+			m_eTurret = null;
+			m_eTurretController = null;
+			return;
+		}
+		
+		if(!m_eCurrentPlayer)
 			return;
 		
 		if(!m_eventHandler || !IsAdsActive())
