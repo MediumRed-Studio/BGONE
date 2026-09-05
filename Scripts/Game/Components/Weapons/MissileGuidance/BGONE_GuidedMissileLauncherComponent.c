@@ -289,7 +289,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	}
 	
 	// ADS check for the frame loop (UpdateLock runs ADS-gated; lock stops
-	// on ADS loss). Shared helper so the weapon/turret ADS reads live here.
+	// on ADS loss).
 	protected bool IsAdsActive()
 	{
 		if(m_eCurrentPlayer && m_eCurrentPlayer.GetWeaponManager())
@@ -311,9 +311,9 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			return;
 		
 		// Origin semantics: DOWN always arms the lock; ADS-only operation
-		// is enforced by EOnFixedFrame (UpdateLock runs ADS-gated, lock
-		// stops on ADS loss). No gate here: a false-negative ADS read
-		// would swallow the press with zero feedback.
+		// is enforced by EOnFixedFrame (UpdateLock ADS-gated, StopLock on
+		// ADS loss cancels a press that landed off-ADS). No gate at the
+		// input edge by design.
 		m_bLocking = (reason == EActionTrigger.DOWN);
 		if(m_eLockTypeComponent)
 		{
