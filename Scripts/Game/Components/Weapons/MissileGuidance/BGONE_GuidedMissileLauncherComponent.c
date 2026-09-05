@@ -288,8 +288,8 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			m_eLockTypeComponent.UpdateLock(timeSlice);
 	}
 	
-	// Single ADS check shared by EOnFixedFrame and SetLockingState, so the
-	// lock action stays inert off ADS (the input context is active from equip).
+	// ADS check for the frame loop (UpdateLock runs ADS-gated; lock stops
+	// on ADS loss).
 	protected bool IsAdsActive()
 	{
 		if(m_eCurrentPlayer && m_eCurrentPlayer.GetWeaponManager())
@@ -310,11 +310,10 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		if(m_RplComponent && m_RplComponent.IsRemoteProxy())
 			return;
 		
-		// The input context is active from equip (not ADS-gated), so ignore
-		// lock-start off ADS. Release (UP) always stops: fail-safe.
-		if(reason == EActionTrigger.DOWN && !IsAdsActive())
-			return;
-		
+		// Origin semantics: DOWN always arms the lock; ADS-only operation
+		// is enforced by EOnFixedFrame (UpdateLock ADS-gated, StopLock on
+		// ADS loss cancels a press that landed off-ADS). No gate at the
+		// input edge by design.
 		m_bLocking = (reason == EActionTrigger.DOWN);
 		if(m_eLockTypeComponent)
 		{
