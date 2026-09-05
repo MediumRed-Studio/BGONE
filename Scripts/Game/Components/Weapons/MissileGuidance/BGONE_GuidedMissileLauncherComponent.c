@@ -59,9 +59,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		
 		if(m_vehicleEventHandler)
 		{
-			m_vehicleEventHandler.RemoveScriptHandler("OnCompartmentEntered", this, OnCompartmentEntered);
-			m_vehicleEventHandler.RemoveScriptHandler("OnCompartmentLeft", this, OnCompartmentLeft);
-			m_vehicleEventHandler = null;
+			ReleaseVehicleHandler();
 		}
 		
 		if(m_eventHandler)
@@ -71,9 +69,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		
 		// Cancel any pending server-launch retry so the timer cannot fire
 		// into a destroyed/despawned launcher and bind a live missile to it.
-		m_PendingServerLaunch = null;
-		if(GetGame())
-			GetGame().GetCallqueue().Remove(TryPendingServerLaunch);
+		CancelPendingLaunch();
 	}
 	
 	protected void UpdateOccupantAndOwnership()
@@ -108,6 +104,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		{
 			m_eTurret = null;
 			m_eTurretController = null;
+			ReleaseVehicleHandler();
 			m_eCurrentPlayer = SCR_ChimeraCharacter.Cast(m_eOwner.GetRootParent());
 		}
 		
@@ -144,6 +141,25 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		return m_eOwner.GetRootParent() == m_eCurrentPlayer;
 	}
 	
+	// Shared teardown fragments (single owners; called from EOnDeactivate,
+	// the FixedFrame unbind path, and compartment/holder transitions).
+	protected void ReleaseVehicleHandler()
+	{
+		if(!m_vehicleEventHandler)
+			return;
+		
+		m_vehicleEventHandler.RemoveScriptHandler("OnCompartmentEntered", this, OnCompartmentEntered);
+		m_vehicleEventHandler.RemoveScriptHandler("OnCompartmentLeft", this, OnCompartmentLeft);
+		m_vehicleEventHandler = null;
+	}
+	
+	protected void CancelPendingLaunch()
+	{
+		m_PendingServerLaunch = null;
+		if(GetGame())
+			GetGame().GetCallqueue().Remove(TryPendingServerLaunch);
+	}
+	
 	protected void OnCompartmentEntered(IEntity vehicle, BaseCompartmentManagerComponent manager, int mgrID, int slotID, IEntity occupant)
 	{
 		if(!m_eTurretController)
@@ -171,6 +187,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		if(m_eCurrentPlayer && m_eCurrentPlayer == occupant)
 		{
 			RemoveListeners();
+			CancelPendingLaunch();
 			m_eCurrentPlayer = null;
 		}
 	}
@@ -249,6 +266,8 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		else if(!IsStillHeldByPlayer())
 		{
 			RemoveListeners();
+			ReleaseVehicleHandler();
+			CancelPendingLaunch();
 			m_eCurrentPlayer = null;
 			m_eTurret = null;
 			m_eTurretController = null;
