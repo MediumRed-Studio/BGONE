@@ -152,7 +152,6 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 			m_bDetonated = true;
 			m_bGuidanceActive = false;
 			bool down = (m_eCurrentTargetData.detonated == EBGONE_DetonationState.AIRBURST);
-			bool down = (m_eCurrentTargetData.detonated == EBGONE_DetonationState.AIRBURST);
 			vector explodePos = m_eOwner.GetOrigin();
 			
 			if(down)
@@ -201,15 +200,27 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		if(!m_eOwner)
 			return;
 		
-		// Dead-reckon locally between syncs; snap position/angles only on
-		// real divergence. Unconditional SetOrigin strobes ~7.5 m per 20 Hz
-		// tick at cruise speed, which kills the trail emitter ("suspicious
-		// parent velocity") and makes guided flight look ballistic.
-		// 2 m threshold: per-tick steering drift stays far below it, true
-		// divergence (spawn, packet loss, sharp maneuvers) snaps through.
+		// Reject poisoned snapshots: a NaN position would fail every
+		// future comparison and latch the gate shut while a NaN velocity
+		// still poisons physics below.
+		if(!IsValidVector(position) || !IsValidVector(velocity) || !IsValidVector(angles))
+			return;
+		
+		// Orientation tracks velocity every tick (they encode the same
+		// vector server-side); only the position snap is gated. An
+		// ungated nose keeps mesh, trail and travel direction coherent
+		// while the body dead-reckons between corrections.
+		m_eOwner.SetYawPitchRoll(angles);
+		
+		// Dead-reckon locally between syncs; snap position only on real
+		// divergence. Unconditional SetOrigin strobes proxies on every
+		// 20 Hz tick, which trips the trail emitter's "suspicious parent
+		// velocity" check and kills the plume. 2 m threshold: sub-meter
+		// per-tick steering error coasts through; spawn placement,
+		// packet-loss gaps and sharp maneuvers still snap (visibly, once,
+		// instead of strobing).
 		if(vector.DistanceSq(m_eOwner.GetOrigin(), position) > 4.0)
 		{
-			m_eOwner.SetYawPitchRoll(angles);
 			m_eOwner.SetOrigin(position);
 		}
 		if(m_eOwner.GetPhysics())
