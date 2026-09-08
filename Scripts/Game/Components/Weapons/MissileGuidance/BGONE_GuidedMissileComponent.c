@@ -20,6 +20,10 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	protected float m_fFlightTime;
 	protected bool m_bGuidanceActive = false;
 	protected bool m_bDetonated = false;
+	// TEMP-DIAG (uncommitted worktree only, never merges).
+	protected bool m_bDiagSimLogged;
+	// TEMP-DIAG (uncommitted worktree only, never merges).
+	protected bool m_bDiagSimLogged;
 	// Replicated from authority to all proxies (type codec: the static
 	// Extract/Inject/Encode/Decode/SnapCompare/PropCompare/EncodeDelta/
 	// DecodeDelta in BGONE_TargetData). Authority writes it in onLaunched;
@@ -106,6 +110,9 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		// Authority-only by construction (proxies replicate nothing outward).
 		if(m_RplComponent && m_RplComponent.Role() == RplRole.Authority)
 			Replication.BumpMe();
+		
+		// TEMP-DIAG (uncommitted worktree only, never merges).
+		Print("BGONE DIAG: onLaunched armed", LogLevel.WARNING);
 	}
 	
 	override void EOnSimulate(IEntity owner, float timeSlice)
@@ -115,6 +122,13 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		
 		if(!m_bGuidanceActive || !m_eCurrentTargetData)
 			return;
+		
+		// TEMP-DIAG (uncommitted worktree only, never merges).
+		if(!m_bDiagSimLogged)
+		{
+			m_bDiagSimLogged = true;
+			Print("BGONE DIAG: missile simulate ticking", LogLevel.WARNING);
+		}
 		
 		m_fFlightTime += timeSlice;
 
@@ -151,6 +165,8 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		{
 			m_bDetonated = true;
 			m_bGuidanceActive = false;
+			// TEMP-DIAG (uncommitted worktree only, never merges).
+			Print("BGONE DIAG: detonated, exploding", LogLevel.WARNING);
 			bool down = (m_eCurrentTargetData.detonated == EBGONE_DetonationState.AIRBURST);
 			vector explodePos = m_eOwner.GetOrigin();
 			
@@ -199,9 +215,18 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	{
 		if(!m_eOwner)
 			return;
-			
-		m_eOwner.SetYawPitchRoll(angles);
-		m_eOwner.SetOrigin(position);
+		
+		// Dead-reckon locally between syncs; snap position/angles only on
+		// real divergence. Unconditional SetOrigin strobes ~7.5 m per 20 Hz
+		// tick at cruise speed, which kills the trail emitter ("suspicious
+		// parent velocity") and makes guided flight look ballistic.
+		// 2 m threshold: per-tick steering drift stays far below it, true
+		// divergence (spawn, packet loss, sharp maneuvers) snaps through.
+		if(vector.DistanceSq(m_eOwner.GetOrigin(), position) > 4.0)
+		{
+			m_eOwner.SetYawPitchRoll(angles);
+			m_eOwner.SetOrigin(position);
+		}
 		if(m_eOwner.GetPhysics())
 			m_eOwner.GetPhysics().SetVelocity(velocity);
 	}
