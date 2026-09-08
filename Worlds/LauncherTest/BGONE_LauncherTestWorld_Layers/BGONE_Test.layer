@@ -40,8 +40,8 @@ $grp GenericEntity : "{82C0AFB409A3AE0B}Prefabs/Weapons/Launchers/BGONE_Launcher
   components {
    WeaponComponent "{CFBAA4B706BA66E8}" {
     components {
-     BGONE_GuidedMissileLauncherComponent "{5F2328C5448F1FE9}" {
-      m_eLockTypeComponent BGONE_LockType_VIS "{5F2328DAE9F2E339}" {
+     BGONE_GuidedMissileLauncherComponent "{61D52846F9F67484}" {
+      m_eLockTypeComponent BGONE_LockType_VIS "{61D52846FACEA01F}" {
        m_eUnitTypesToLock {
        }
       }
@@ -55,8 +55,8 @@ $grp GenericEntity : "{82C0AFB409A3AE0B}Prefabs/Weapons/Launchers/BGONE_Launcher
   components {
    WeaponComponent "{CFBAA4B706BA66E8}" {
     components {
-     BGONE_GuidedMissileLauncherComponent "{5F2328C5448F1FE9}" {
-      m_eLockTypeComponent BGONE_LockType_VIS "{5F2328DAE9F2E339}" {
+     BGONE_GuidedMissileLauncherComponent "{61D52846F9F67484}" {
+      m_eLockTypeComponent BGONE_LockType_VIS "{61D52846FACEA01F}" {
        m_eUnitTypesToLock {
        }
       }
