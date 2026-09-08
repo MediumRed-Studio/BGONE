@@ -53,12 +53,14 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 			return null;
 		
 		lockingTarget = null;
-		// Snapshot BEFORE the scan: ScanForTarget mutates lastTarget as a
-		// side effect (via TraceLOS/CheckUnitType), so post-scan
-		// lastTarget == lockingTarget always. Switch/loss/new-target
-		// decisions must compare against the pre-scan value, otherwise
-		// target switches keep the old RplId (missile flies to the stale
-		// target) and real losses never reset.
+		// Snapshot BEFORE the scan: on found/grid-exhausted paths
+		// ScanForTarget mutates lastTarget as a side effect (via
+		// TraceLOS/CheckUnitType), making post-scan lastTarget ==
+		// lockingTarget there. (Range/cone early-outs return null with
+		// lastTarget intact.) Switch/loss/new-target decisions must
+		// compare against the pre-scan value, otherwise target switches
+		// keep the old RplId (missile flies to the stale target) and
+		// grid-exhausted losses never reset.
 		IEntity previousTarget = lastTarget;
 		float currentTime = GetGame().GetWorld().GetWorldTime();
 		if(currentTime > m_fNextScanTime)
