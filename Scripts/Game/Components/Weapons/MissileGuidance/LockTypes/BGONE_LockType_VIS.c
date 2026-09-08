@@ -53,6 +53,13 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 			return null;
 		
 		lockingTarget = null;
+		// Snapshot BEFORE the scan: ScanForTarget mutates lastTarget as a
+		// side effect (via TraceLOS/CheckUnitType), so post-scan
+		// lastTarget == lockingTarget always. Switch/loss/new-target
+		// decisions must compare against the pre-scan value, otherwise
+		// target switches keep the old RplId (missile flies to the stale
+		// target) and real losses never reset.
+		IEntity previousTarget = lastTarget;
 		float currentTime = GetGame().GetWorld().GetWorldTime();
 		if(currentTime > m_fNextScanTime)
 		{
@@ -67,13 +74,13 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		// Lost target or none found
 		if(!lockingTarget)
 		{
-			if(lastTarget)
+			if(previousTarget)
 				LockLost();
 		}
 		else 
 		{
 			// Still locking same target
-			if(lockingTarget == lastTarget)
+			if(previousTarget && lockingTarget == previousTarget)
 			{
 				m_eLockingData.lockingProgress = Math.Clamp(m_eLockingData.lockingProgress + (timeSlice / m_iLockOnTime) * 100.0, 0.0, 100.0);
 				m_eLockingData.lockingPos = GetAimPoint(lockingTarget);
@@ -92,8 +99,8 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 				}
 			}
 			
-			// Locking new target
-			if(lastTarget != lockingTarget)
+			// Locking new target (or first acquisition)
+			if(!previousTarget || previousTarget != lockingTarget)
 			{
 				m_eLockingData.lockingProgress = 0;
 				m_eLockingData.lockingPos = GetAimPoint(lockingTarget);
