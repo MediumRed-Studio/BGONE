@@ -284,6 +284,14 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			return;
 		}
 		
+		// Re-assert every ADS frame (origin behavior): equip-time
+		// activation alone left Ctrl dead across ADS transitions in
+		// testing despite registered listeners. Suspected engine context
+		// switch on ADS — not traced; the per-frame re-assert covers it
+		// regardless of mechanism.
+		if(m_InputManager)
+			m_InputManager.ActivateContext("CharacterWeaponGuidedLauncher");
+		
 		if(m_eLockTypeComponent)
 			m_eLockTypeComponent.UpdateLock(timeSlice);
 	}
@@ -625,7 +633,8 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		{
 			m_InputManager.AddActionListener("BGONELock", EActionTrigger.DOWN, SetLockingState);
 			m_InputManager.AddActionListener("BGONELock", EActionTrigger.UP, SetLockingState);
-			// Activated once with the listeners (was per-frame in FixedFrame).
+			// Baseline activation at listen time; EOnFixedFrame re-asserts
+			// every ADS frame against engine context switches.
 			m_InputManager.ActivateContext("CharacterWeaponGuidedLauncher");
 		}
 		
