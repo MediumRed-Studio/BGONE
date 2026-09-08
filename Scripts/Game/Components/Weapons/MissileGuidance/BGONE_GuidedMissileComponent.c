@@ -20,10 +20,6 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	protected float m_fFlightTime;
 	protected bool m_bGuidanceActive = false;
 	protected bool m_bDetonated = false;
-	// TEMP-DIAG (uncommitted worktree only, never merges).
-	protected bool m_bDiagSimLogged;
-	// TEMP-DIAG (uncommitted worktree only, never merges).
-	protected bool m_bDiagSimLogged;
 	// Replicated from authority to all proxies (type codec: the static
 	// Extract/Inject/Encode/Decode/SnapCompare/PropCompare/EncodeDelta/
 	// DecodeDelta in BGONE_TargetData). Authority writes it in onLaunched;
@@ -110,9 +106,6 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		// Authority-only by construction (proxies replicate nothing outward).
 		if(m_RplComponent && m_RplComponent.Role() == RplRole.Authority)
 			Replication.BumpMe();
-		
-		// TEMP-DIAG (uncommitted worktree only, never merges).
-		Print("BGONE DIAG: onLaunched armed", LogLevel.WARNING);
 	}
 	
 	override void EOnSimulate(IEntity owner, float timeSlice)
@@ -122,13 +115,6 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		
 		if(!m_bGuidanceActive || !m_eCurrentTargetData)
 			return;
-		
-		// TEMP-DIAG (uncommitted worktree only, never merges).
-		if(!m_bDiagSimLogged)
-		{
-			m_bDiagSimLogged = true;
-			Print("BGONE DIAG: missile simulate ticking", LogLevel.WARNING);
-		}
 		
 		m_fFlightTime += timeSlice;
 
@@ -165,8 +151,7 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		{
 			m_bDetonated = true;
 			m_bGuidanceActive = false;
-			// TEMP-DIAG (uncommitted worktree only, never merges).
-			Print("BGONE DIAG: detonated, exploding", LogLevel.WARNING);
+			bool down = (m_eCurrentTargetData.detonated == EBGONE_DetonationState.AIRBURST);
 			bool down = (m_eCurrentTargetData.detonated == EBGONE_DetonationState.AIRBURST);
 			vector explodePos = m_eOwner.GetOrigin();
 			
