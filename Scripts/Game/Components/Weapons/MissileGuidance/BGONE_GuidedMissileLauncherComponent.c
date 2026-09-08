@@ -111,6 +111,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		if(!m_eCurrentPlayer)
 			return;
 		
+		Print("BGONE DIAG: bound player, registering listeners", LogLevel.WARNING);
 		RegisterListeners();
 		
 		RplComponent playerRpl = m_eCurrentPlayer.GetRplComponent();
@@ -211,6 +212,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	
 	protected override void EOnInit(IEntity owner)
 	{
+		Print("BGONE DIAG: launcher EOnInit", LogLevel.WARNING);
 		m_eOwner = owner;
 		m_RplComponent = RplComponent.Cast(m_eOwner.FindComponent(RplComponent));
 		
@@ -309,6 +311,16 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	{
 		if(m_RplComponent && m_RplComponent.IsRemoteProxy())
 			return;
+		
+		if(reason == EActionTrigger.DOWN)
+			Print("BGONE DIAG: lock action DOWN", LogLevel.WARNING);
+		else
+			Print("BGONE DIAG: lock action UP", LogLevel.WARNING);
+		
+		if(IsAdsActive())
+			Print("BGONE DIAG: ads ACTIVE", LogLevel.WARNING);
+		else
+			Print("BGONE DIAG: ads INACTIVE", LogLevel.WARNING);
 		
 		// Origin semantics: DOWN always arms the lock; ADS-only operation
 		// is enforced by EOnFixedFrame (UpdateLock ADS-gated, StopLock on
@@ -626,7 +638,10 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			m_InputManager.AddActionListener("BGONELock", EActionTrigger.DOWN, SetLockingState);
 			m_InputManager.AddActionListener("BGONELock", EActionTrigger.UP, SetLockingState);
 			// Activated once with the listeners (was per-frame in FixedFrame).
-			m_InputManager.ActivateContext("CharacterWeaponGuidedLauncher");
+			if(m_InputManager.ActivateContext("CharacterWeaponGuidedLauncher"))
+				Print("BGONE DIAG: listeners registered, context ACTIVE", LogLevel.WARNING);
+			else
+				Print("BGONE DIAG: listeners registered, context FAILED", LogLevel.WARNING);
 		}
 		
 		m_bListenersRegistered = true;

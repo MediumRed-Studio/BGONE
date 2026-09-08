@@ -27,6 +27,10 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	protected AudioHandle m_eLockAudioHandle;
 	protected ref Widget m_wDisplay;
 	
+	// TEMP-DIAG (fix/bgone-lock-diag only, never merges): one-shot flags.
+	protected bool m_bDiagTickLogged;
+	protected bool m_bDiagWidgetLogged;
+	
 	protected ref array<ref Shape> m_aDbgCollisionShapes;
 	
 	override void InitLockType(IEntity owner)
@@ -51,6 +55,13 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	{
 		if(!super.UpdateLock(timeSlice))
 			return null;
+		
+		// TEMP-DIAG (fix/bgone-lock-diag only, never merges).
+		if(!m_bDiagTickLogged)
+		{
+			m_bDiagTickLogged = true;
+			Print("BGONE DIAG: VIS UpdateLock ticking", LogLevel.WARNING);
+		}
 		
 		lockingTarget = null;
 		float currentTime = GetGame().GetWorld().GetWorldTime();
@@ -311,6 +322,16 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		// destructor cleanup so teardown can never touch a dead workspace.
 		if(!m_wDisplay)
 			m_wDisplay = workspace.CreateWidgets(m_sLockOnLayout);
+		
+		// TEMP-DIAG (fix/bgone-lock-diag only, never merges).
+		if(!m_bDiagWidgetLogged)
+		{
+			m_bDiagWidgetLogged = true;
+			if(m_wDisplay)
+				Print("BGONE DIAG: lock widget created", LogLevel.WARNING);
+			else
+				Print("BGONE DIAG: lock widget NULL (layout failed)", LogLevel.WARNING);
+		}
 			
 		if(!m_wDisplay)
 			return;
