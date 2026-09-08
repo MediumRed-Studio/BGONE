@@ -26,6 +26,8 @@ class BGONE_LockType_Base : ScriptAndConfig
 	
 	void StartLock()
 	{
+		// TEMP-DIAG branch only (never merges).
+		Print("BGONE DIAG: StartLock", LogLevel.WARNING);
 		if(!m_eLockingData)
 			m_eLockingData = new BGONE_LockingData_BASE();
 			

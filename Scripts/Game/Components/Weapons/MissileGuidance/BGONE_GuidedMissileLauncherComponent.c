@@ -39,6 +39,8 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	// different missile staged afterwards.
 	protected RplId m_PendingRetryMissile;
 	protected const int PENDING_LAUNCH_RETRY_MS = 500;
+	// TEMP-DIAG (probe branch only, never merges).
+	protected float m_fDiagAccum;
 	
 	// Methods for handling ownership change and action context (de)activation.
 	protected override void EOnActivate(IEntity owner)
@@ -111,6 +113,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		if(!m_eCurrentPlayer)
 			return;
 		
+		Print("BGONE DIAG: bound player, registering listeners", LogLevel.WARNING);
 		RegisterListeners();
 		
 		RplComponent playerRpl = m_eCurrentPlayer.GetRplComponent();
@@ -211,6 +214,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	
 	protected override void EOnInit(IEntity owner)
 	{
+		Print("BGONE DIAG: launcher EOnInit", LogLevel.WARNING);
 		m_eOwner = owner;
 		m_RplComponent = RplComponent.Cast(m_eOwner.FindComponent(RplComponent));
 		
@@ -254,6 +258,30 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	{
 		if(m_RplComponent && m_RplComponent.IsRemoteProxy())
 			return;
+		
+		// TEMP-DIAG (probe branch only, never merges): 1 Hz input-state
+		// self-observation. Runs unconditionally (even unbound) to answer:
+		// is our context really active, and does the action carry input?
+		if(m_InputManager)
+		{
+			m_fDiagAccum += timeSlice;
+			if(m_fDiagAccum > 1.0)
+			{
+				m_fDiagAccum = 0;
+				if(m_InputManager.IsContextActive("CharacterWeaponGuidedLauncher"))
+					Print("BGONE DIAG: context ACTIVE", LogLevel.WARNING);
+				else
+					Print("BGONE DIAG: context INACTIVE", LogLevel.WARNING);
+				
+				if(m_InputManager.IsActionActive("BGONELock"))
+					Print("BGONE DIAG: action BGONELock ACTIVE", LogLevel.WARNING);
+				else
+					Print("BGONE DIAG: action BGONELock INACTIVE", LogLevel.WARNING);
+				
+				if(m_InputManager.GetActionValue("BGONELock") > 0.5)
+					Print("BGONE DIAG: action value HIGH (key held)", LogLevel.WARNING);
+			}
+		}
 		
 		// Self-healing occupant binding: EOnActivate fires at spawn/stream,
 		// not on equip, so a table-picked launcher would otherwise never
@@ -317,6 +345,17 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	{
 		if(m_RplComponent && m_RplComponent.IsRemoteProxy())
 			return;
+		
+		// TEMP-DIAG branch only (never merges).
+		if(reason == EActionTrigger.DOWN)
+			Print("BGONE DIAG: lock action DOWN", LogLevel.WARNING);
+		else
+			Print("BGONE DIAG: lock action UP", LogLevel.WARNING);
+		
+		if(IsAdsActive())
+			Print("BGONE DIAG: ads ACTIVE", LogLevel.WARNING);
+		else
+			Print("BGONE DIAG: ads INACTIVE", LogLevel.WARNING);
 		
 		// Origin semantics: DOWN always arms the lock; ADS-only operation
 		// is enforced by EOnFixedFrame (UpdateLock ADS-gated, StopLock on
@@ -635,7 +674,11 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			m_InputManager.AddActionListener("BGONELock", EActionTrigger.UP, SetLockingState);
 			// Baseline activation at listen time; EOnFixedFrame re-asserts
 			// every ADS frame against engine context switches.
-			m_InputManager.ActivateContext("CharacterWeaponGuidedLauncher");
+			// TEMP-DIAG branch only: report activation result.
+			if(m_InputManager.ActivateContext("CharacterWeaponGuidedLauncher"))
+				Print("BGONE DIAG: listeners registered, context ACTIVE", LogLevel.WARNING);
+			else
+				Print("BGONE DIAG: listeners registered, context FAILED", LogLevel.WARNING);
 		}
 		
 		m_bListenersRegistered = true;
