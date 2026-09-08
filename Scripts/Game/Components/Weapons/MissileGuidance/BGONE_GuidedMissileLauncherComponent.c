@@ -284,9 +284,11 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			return;
 		}
 		
-		// Re-assert every ADS frame (origin behavior): the engine switches
-		// input contexts itself (e.g. on ADS), which drops ours. Equip-time
-		// activation alone does not survive that switch.
+		// Re-assert every ADS frame (origin behavior): equip-time
+		// activation alone left Ctrl dead across ADS transitions in
+		// testing despite registered listeners. Suspected engine context
+		// switch on ADS — not traced; the per-frame re-assert covers it
+		// regardless of mechanism.
 		if(m_InputManager)
 			m_InputManager.ActivateContext("CharacterWeaponGuidedLauncher");
 		
