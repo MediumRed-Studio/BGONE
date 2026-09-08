@@ -199,9 +199,30 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	{
 		if(!m_eOwner)
 			return;
-			
+		
+		// Reject poisoned snapshots: a NaN position would fail every
+		// future comparison and latch the gate shut while a NaN velocity
+		// still poisons physics below.
+		if(!IsValidVector(position) || !IsValidVector(velocity) || !IsValidVector(angles))
+			return;
+		
+		// Orientation tracks velocity every tick (they encode the same
+		// vector server-side); only the position snap is gated. An
+		// ungated nose keeps mesh, trail and travel direction coherent
+		// while the body dead-reckons between corrections.
 		m_eOwner.SetYawPitchRoll(angles);
-		m_eOwner.SetOrigin(position);
+		
+		// Dead-reckon locally between syncs; snap position only on real
+		// divergence. Unconditional SetOrigin strobes proxies on every
+		// 20 Hz tick, which trips the trail emitter's "suspicious parent
+		// velocity" check and kills the plume. 2 m threshold: sub-meter
+		// per-tick steering error coasts through; spawn placement,
+		// packet-loss gaps and sharp maneuvers still snap (visibly, once,
+		// instead of strobing).
+		if(vector.DistanceSq(m_eOwner.GetOrigin(), position) > 4.0)
+		{
+			m_eOwner.SetOrigin(position);
+		}
 		if(m_eOwner.GetPhysics())
 			m_eOwner.GetPhysics().SetVelocity(velocity);
 	}
