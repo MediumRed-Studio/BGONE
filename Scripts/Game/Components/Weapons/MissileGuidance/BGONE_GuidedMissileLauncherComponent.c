@@ -281,6 +281,11 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		{
 			if(m_bLocking && m_eLockTypeComponent)
 				m_eLockTypeComponent.StopLock();
+			// Clear the held flag with the stop: without a release edge
+			// (or after one that never arrives) it would latch true
+			// forever with per-frame StopLock churn. Re-press re-arms;
+			// fire reads lock data, never this flag.
+			m_bLocking = false;
 			return;
 		}
 		
