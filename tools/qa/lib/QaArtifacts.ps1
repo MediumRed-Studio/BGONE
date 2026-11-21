@@ -267,11 +267,34 @@ function Get-QaStaleRdbAddons {
 }
 
 function Update-QaStaleRdb {
-    param([string]$WorktreePath, [string[]]$AddonIds, [object[]]$Stale, [string]$Engine, [string]$QaRunPath, [int]$QueueTimeoutSec)
+    param(
+        [string]$WorktreePath,
+        [string[]]$AddonIds,
+        [object[]]$Stale,
+        [string]$Engine,
+        [string]$QaRunPath,
+        [int]$QueueTimeoutSec,
+        [string]$ConfigPath = '',
+        [switch]$AcceptEngineVersion
+    )
     foreach ($s in @($Stale)) {
         if (@(Get-QaStaleRdbAddons -AddonsDir $WorktreePath -AddonIds $AddonIds | Where-Object { $_.Addon -eq $s.Addon }).Count -eq 0) { continue }
         Write-QaStep ('Regenerating resourceDatabase.rdb: compile-only qa-run on ' + $s.Addon)
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $QaRunPath -WorktreePath $WorktreePath -Engine $Engine -Module $s.Addon -QueueTimeoutSec $QueueTimeoutSec | Out-Host
+        $qaArgs = @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass',
+            '-File', $QaRunPath,
+            '-WorktreePath', $WorktreePath,
+            '-Engine', $Engine,
+            '-Module', $s.Addon,
+            '-QueueTimeoutSec', [string]$QueueTimeoutSec
+        )
+        if (-not [string]::IsNullOrWhiteSpace($ConfigPath)) {
+            $qaArgs += @('-ConfigPath', $ConfigPath)
+        }
+        if ($AcceptEngineVersion) {
+            $qaArgs += '-AcceptEngineVersion'
+        }
+        & powershell.exe @qaArgs | Out-Host
         Write-QaInfo ('qa-run exit ' + $LASTEXITCODE)
     }
     return @(Get-QaStaleRdbAddons -AddonsDir $WorktreePath -AddonIds $AddonIds)

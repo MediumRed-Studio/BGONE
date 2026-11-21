@@ -63,6 +63,26 @@ function Invoke-QaSelfTest {
     Assert-QaTrue  -Condition $fe.CompileFailed -What 'error log: compile-failed sentinel detected'
     Assert-QaEqual -Expected $codes.Compile -Actual (Resolve-QaOutcome -Findings $fe).ExitCode -What 'error log: exit 1'
 
+    Write-QaStep 'Self-test: post-compile runtime error attribution'
+    $selfWt = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..\..')).Path
+    $vmLines = @($clean) + @('12:00:31.000    SCRIPT    (E): Virtual Machine Exception')
+    $fvm = Get-QaLogFindings -Lines $vmLines -Patterns $Patterns
+    [void](Add-QaDiagnosticOwners -Diagnostics $fvm.Errors -WorktreePath $selfWt)
+    Assert-QaEqual -Expected 'unknown' -Actual $fvm.Errors[0].Owner -What 'unattributed VM exception marked owner=unknown'
+    Assert-QaEqual -Expected $codes.Compile -Actual (Resolve-QaOutcome -Findings $fvm).ExitCode -What 'unattributed VM exception stays blocking (exit 1)'
+
+    $vanLines = @($clean) + @('12:00:31.000    SCRIPT    (E): @"scripts/Game/VanillaOnlyMissingFile.c,9": noise')
+    $fvan = Get-QaLogFindings -Lines $vanLines -Patterns $Patterns
+    [void](Add-QaDiagnosticOwners -Diagnostics $fvan.Errors -WorktreePath $selfWt)
+    Assert-QaEqual -Expected 'vanilla' -Actual $fvan.Errors[0].Owner -What 'non-BGONE post-compile file marked owner=vanilla'
+    Assert-QaEqual -Expected $codes.Clean -Actual (Resolve-QaOutcome -Findings $fvan).ExitCode -What 'confirmed vanilla post-compile error is non-blocking (exit 0)'
+
+    $ourLines = @($clean) + @('12:00:31.000    SCRIPT    (E): @"scripts/Game/Diag/BGONE_MPBotController.c,12": boom')
+    $four = Get-QaLogFindings -Lines $ourLines -Patterns $Patterns
+    [void](Add-QaDiagnosticOwners -Diagnostics $four.Errors -WorktreePath $selfWt)
+    Assert-QaEqual -Expected 'BGONE' -Actual $four.Errors[0].Owner -What 'BGONE post-compile file marked owner=BGONE'
+    Assert-QaEqual -Expected $codes.Compile -Actual (Resolve-QaOutcome -Findings $four).ExitCode -What 'BGONE post-compile error is blocking (exit 1)'
+
     Write-QaStep 'Self-test: strict BGONE addon resolution'
     $res = Test-QaAddonResolution -Findings $f -WorktreePath 'C:\wt\bgone-test' -StageAddonLink 'C:\wt\.bgone-stage\deadbeef\Addons\BGONE' -AddonGuid '5F1EE615E7AE3106' -VanillaGuid '58D0FB3206B6F859'
     Assert-QaTrue -Condition $res.Ok -What 'BGONE resolved from staging junction + vanilla present'

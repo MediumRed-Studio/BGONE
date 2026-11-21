@@ -368,7 +368,7 @@ foreach ($s in $staleRdb) {
 # Queue prep lane (-PrepRdb): regenerate root resourceDatabase.rdb without holding the MP rig lock.
 if ($PrepRdb -and -not $WhatIf) {
     if ($staleRdb.Count -gt 0) {
-        $staleRdb = @(Update-QaStaleRdb -WorktreePath $WorktreePath -AddonIds $addonIds -Stale $staleRdb -Engine $Engine -QaRunPath (Join-Path $PSScriptRoot 'qa-run.ps1') -QueueTimeoutSec $QueueTimeoutSec)
+        $staleRdb = @(Update-QaStaleRdb -WorktreePath $WorktreePath -AddonIds $addonIds -Stale $staleRdb -Engine $Engine -QaRunPath (Join-Path $PSScriptRoot 'qa-run.ps1') -QueueTimeoutSec $QueueTimeoutSec -ConfigPath $ConfigPath -AcceptEngineVersion:$AcceptEngineVersion)
     }
     if ($staleRdb.Count -gt 0) {
         Write-QaWarn ('Prep: resourceDatabase.rdb is still stale; the run will retry in its own slot.')
@@ -513,7 +513,7 @@ if (-not $ReuseServer) {
         }
 
         if ($staleRdb.Count -gt 0) {
-            $staleRdb = @(Update-QaStaleRdb -WorktreePath $WorktreePath -AddonIds $addonIds -Stale $staleRdb -Engine $Engine -QaRunPath (Join-Path $PSScriptRoot 'qa-run.ps1') -QueueTimeoutSec $QueueTimeoutSec)
+            $staleRdb = @(Update-QaStaleRdb -WorktreePath $WorktreePath -AddonIds $addonIds -Stale $staleRdb -Engine $Engine -QaRunPath (Join-Path $PSScriptRoot 'qa-run.ps1') -QueueTimeoutSec $QueueTimeoutSec -ConfigPath $ConfigPath -AcceptEngineVersion:$AcceptEngineVersion)
             if ($staleRdb.Count -gt 0) {
                 foreach ($s in $staleRdb) {
                     Write-QaError ($s.Addon + ' resourceDatabase.rdb still does not list: ' + (@($s.Missing) -join ', '))

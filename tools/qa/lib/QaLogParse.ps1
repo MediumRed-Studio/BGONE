@@ -294,19 +294,25 @@ function Add-QaDiagnosticOwners {
     }
 
     foreach ($d in $Diagnostics) {
-        $owner = 'vanilla/unknown'
+        $owner = 'unknown'
+        $sawFile = $false
         if ($d.File) {
+            $sawFile = $true
             $owner = & $resolveOwner ([string]$d.File)
         }
-        if ($owner -eq 'vanilla/unknown' -and $d.Raw) {
+        if ($owner -ne $AddonName -and $d.Raw) {
             foreach ($m in ([regex]::Matches([string]$d.Raw, '(?<path>[\w\-/\\\.]+\.c)\b'))) {
+                $sawFile = $true
                 $cand = $m.Groups['path'].Value.TrimStart('.', '/', '\')
                 $probeOwner = & $resolveOwner $cand
-                if ($probeOwner -ne 'vanilla/unknown') { $owner = $probeOwner; break }
+                if ($probeOwner -eq $AddonName) { $owner = $probeOwner; break }
             }
         }
+        if ($owner -ne $AddonName) {
+            if ($sawFile -and $rootValid) { $owner = 'vanilla' } else { $owner = 'unknown' }
+        }
         $d | Add-Member -NotePropertyName 'Owner' -NotePropertyValue $owner -Force
-        $d | Add-Member -NotePropertyName 'IsOurs' -NotePropertyValue ($owner -ne 'vanilla/unknown') -Force
+        $d | Add-Member -NotePropertyName 'IsOurs' -NotePropertyValue ($owner -eq $AddonName) -Force
     }
     return $Diagnostics
 }
@@ -434,7 +440,8 @@ function Get-QaBlockingErrors {
     return @($Diagnostics | Where-Object {
         (-not ($_.PSObject.Properties['AfterCompile'] -and $_.AfterCompile)) -or
         (-not $_.PSObject.Properties['IsOurs']) -or
-        $_.IsOurs
+        $_.IsOurs -or
+        ($_.PSObject.Properties['Owner'] -and ($_.Owner -eq 'unknown'))
     })
 }
 
@@ -478,7 +485,7 @@ function Resolve-QaOutcome {
             if ($attributed.Count -eq $blocking.Count) {
                 $phase = 'Script runtime errors in BGONE'
             } else {
-                $phase = 'Post-compile script errors that could not be attributed (no worktree given, so treated as blocking)'
+                $phase = 'Post-compile script errors that could not be attributed to vanilla (treated as blocking)'
             }
         }
         return [pscustomobject]@{
