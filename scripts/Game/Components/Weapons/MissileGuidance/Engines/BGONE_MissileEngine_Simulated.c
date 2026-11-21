@@ -10,14 +10,21 @@ class BGONE_MissileEngine_Simulated : BGONE_MissileEngine_Base
 	
 	override bool ProcessFrame(Projectile projectile, vector targetPos, float flightTime, float timeSlice)
 	{
+		if (!projectile)
+			return false;
+
+		Physics phys = projectile.GetPhysics();
+		if (!phys)
+			return false;
+
 		float adjustTime = timeSlice / 0.01;
 		float minDeflection = Math.Max(m_fMinDeflection - (m_fMinDeflection * adjustTime), 0);
 		float maxDeflection = m_fMaxDeflection * adjustTime;
 		
 		if ((minDeflection != 0 || maxDeflection != 0) && targetPos != Vector(0,0,0))
 		{
-			vector targetVector = vector.Direction(projectile.GetOrigin(),targetPos);
-			vector adjustVector = targetVector.Normalized() - projectile.GetPhysics().GetVelocity().Normalized();
+			vector targetVector = vector.Direction(projectile.GetOrigin(), targetPos);
+			vector adjustVector = targetVector.Normalized() - phys.GetVelocity().Normalized();
 			
 			if(adjustVector[0] < 0)
 			{
@@ -44,13 +51,13 @@ class BGONE_MissileEngine_Simulated : BGONE_MissileEngine_Base
 				adjustVector[2] = Math.Clamp(Math.AbsFloat(adjustVector[2]),minDeflection,maxDeflection);
 			}
 			
-			vector newVector = projectile.GetPhysics().GetVelocity().Normalized() + adjustVector;
+			vector newVector = phys.GetVelocity().Normalized() + adjustVector;
 			
 			vector rotationError = newVector.VectorToAngles() - projectile.GetYawPitchRoll();
 			vector angularVel = SCR_Math3D.GetFixedAxisVector(rotationError) * timeSlice * Math.DEG2RAD;
 			
-			projectile.GetPhysics().SetAngularVelocity(angularVel);
-			projectile.GetPhysics().SetVelocity(newVector.Normalized() * projectile.GetPhysics().GetVelocity().Length());
+			phys.SetAngularVelocity(angularVel);
+			phys.SetVelocity(newVector.Normalized() * phys.GetVelocity().Length());
 			
 			// Non working but better simulation...
 			//float XZ_Mag = Math.Sqrt(Math.Pow(newVector[0], 2) + Math.Pow(newVector[2], 2));

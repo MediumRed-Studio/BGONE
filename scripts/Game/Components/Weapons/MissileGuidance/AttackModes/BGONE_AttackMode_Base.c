@@ -12,12 +12,15 @@ class BGONE_AttackProfile_Base
 	
 	BGONE_TargetData ProcessFrame(BGONE_TargetData targetData, float flightTime)
 	{
-		
+		return targetData;
 	}
 	
 	protected float GetDistanceFromLaunch(BGONE_TargetData targetData)
 	{
-	 return vector.Distance(m_eProjectile.GetOrigin(), targetData.launchPos);
+		if (!m_eProjectile || !targetData)
+			return 0;
+
+		return vector.Distance(m_eProjectile.GetOrigin(), targetData.launchPos);
 	}
 	
 	string GetProfileName()

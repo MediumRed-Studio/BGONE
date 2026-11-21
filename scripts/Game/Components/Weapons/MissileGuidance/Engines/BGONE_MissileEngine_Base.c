@@ -19,30 +19,37 @@ class BGONE_MissileEngine_Base
 	
 	bool ProcessFrame(Projectile projectile, vector targetPos, float flightTime, float timeSlice)
 	{
-		if(flightTime > m_fTimeToLive)
+		if (flightTime > m_fTimeToLive)
 			return true;
+
+		if (!projectile)
+			return false;
+
+		Physics phys = projectile.GetPhysics();
+		if (!phys)
+			return false;
 		
-		vector targetVector = vector.Direction(projectile.GetOrigin(),targetPos).Normalized();
+		vector targetVector = vector.Direction(projectile.GetOrigin(), targetPos).Normalized();
 		
 		// Limitations on the missile's agility goes here.
 		//vector adjustVector = targetVector - projectile.GetYawPitchRoll().AnglesToVector();
 		//vector newVector = projectile.GetYawPitchRoll().AnglesToVector() + adjustVector;
 		
 		float currentSpeed; // = m_eOwner.GetPhysics().GetVelocity().Length();
-		if(flightTime > m_fThrustDelay && flightTime < m_fBurnTime)
-			currentSpeed = Math.Lerp(m_fInitialSpeed,m_fMaximumSpeed,Math.Clamp(flightTime / m_fBurnTime, 0,1));
-		else if(flightTime > m_fBurnTime)
-			currentSpeed = Math.Lerp(m_fMaximumSpeed,m_fInitialSpeed,Math.Clamp((flightTime - m_fBurnTime) / m_fTimeToLive, 0,1));
-		if(currentSpeed == 0)
-			currentSpeed = projectile.GetPhysics().GetVelocity().Length();
+		if (flightTime > m_fThrustDelay && flightTime < m_fBurnTime)
+			currentSpeed = Math.Lerp(m_fInitialSpeed, m_fMaximumSpeed, Math.Clamp(flightTime / m_fBurnTime, 0, 1));
+		else if (flightTime > m_fBurnTime)
+			currentSpeed = Math.Lerp(m_fMaximumSpeed, m_fInitialSpeed, Math.Clamp((flightTime - m_fBurnTime) / m_fTimeToLive, 0, 1));
+		if (currentSpeed == 0)
+			currentSpeed = phys.GetVelocity().Length();
 		
 		vector rotationError = targetVector.VectorToAngles() - projectile.GetYawPitchRoll();
 		vector angularVel = SCR_Math3D.GetFixedAxisVector(rotationError) * timeSlice * Math.DEG2RAD;
 		vector vel = targetVector * currentSpeed;
 		
 		// This is not sufficient to make the missile face the travel direction.
-		projectile.GetPhysics().SetAngularVelocity(angularVel);
-		projectile.GetPhysics().SetVelocity(vel);
+		phys.SetAngularVelocity(angularVel);
+		phys.SetVelocity(vel);
 		return false;
 	}			
 };

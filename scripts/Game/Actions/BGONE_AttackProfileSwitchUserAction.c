@@ -4,19 +4,31 @@ class BGONE_AttackProfileSwitchUserAction : SCR_InspectionUserAction
 	{
 		if (!super.CanBeShownScript(user))
 			return false;
+
+		if (!m_WeaponComponent)
+			return false;
 		
 		BGONE_GuidedMissileLauncherComponent missileComponent = BGONE_GuidedMissileLauncherComponent.Cast(m_WeaponComponent.FindComponent(BGONE_GuidedMissileLauncherComponent));
 		if (!missileComponent)
 			return false;
 		
-		return (missileComponent && missileComponent.GetAttackModesCount() > 1);
+		return missileComponent.GetAttackModesCount() > 1;
 	}
 	
 	override bool GetActionNameScript(out string outName)
 	{
+		if (!m_WeaponComponent)
+			return false;
+
 		BGONE_GuidedMissileLauncherComponent missileComponent = BGONE_GuidedMissileLauncherComponent.Cast(m_WeaponComponent.FindComponent(BGONE_GuidedMissileLauncherComponent));
+		if (!missileComponent)
+			return false;
+
+		BGONE_AttackProfile_Base currentMode = missileComponent.GetCurrentAttackMode();
+		if (!currentMode)
+			return false;
 		
-		outName = "Change Attack Mode (" + missileComponent.GetCurrentAttackMode().GetProfileName() + ")";
+		outName = "Change Attack Mode (" + currentMode.GetProfileName() + ")";
 		return true;
 	}
 	
@@ -25,7 +37,7 @@ class BGONE_AttackProfileSwitchUserAction : SCR_InspectionUserAction
 		if (!m_WeaponComponent)
 			return;
 		BGONE_GuidedMissileLauncherComponent missileComponent = BGONE_GuidedMissileLauncherComponent.Cast(m_WeaponComponent.FindComponent(BGONE_GuidedMissileLauncherComponent));
-		if (!missileComponent)
+		if (!missileComponent || missileComponent.GetAttackModesCount() == 0)
 			return;
 		
 		missileComponent.CycleAttackMode();

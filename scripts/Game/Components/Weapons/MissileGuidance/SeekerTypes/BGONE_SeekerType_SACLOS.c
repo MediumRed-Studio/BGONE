@@ -27,59 +27,82 @@ class BGONE_SeekerType_SACLOS : BGONE_SeekerType_Base
 	
 	override BGONE_TargetData ProcessFrame(BGONE_TargetData targetData, float flightTime)
 	{
+		if (!m_eProjectile || !targetData)
+			return targetData;
+
 		m_fProjectilePos = m_eProjectile.GetOrigin();
 		m_fDistanceFromLaunch = vector.Distance(targetData.launchPos, m_fProjectilePos);
 	
 		SCR_ChimeraCharacter shooter = targetData.GetShooterEntity();
 		
-		vector aimDir;
-		vector aimPos;
+		vector aimDir = vector.Zero;
+		vector aimPos = vector.Zero;
 		
+		BaseWorld world = GetGame().GetWorld();
+		float worldTime = 0;
+		if (world)
+			worldTime = world.GetWorldTime();
+
 		// use updated values from owner, or fall back to server values if no update for 500 milliseconds.
-		if(ownerAimDir && ownerAimPos)
+		if (ownerAimDir != vector.Zero && ownerAimPos != vector.Zero)
 		{
 			aimDir = ownerAimDir;
 			aimPos = ownerAimPos;
 			
 			ownerAimDir = vector.Zero;
 			ownerAimPos = vector.Zero;
-			lastOwnerUpdate = GetGame().GetWorld().GetWorldTime();
+			lastOwnerUpdate = worldTime;
 		}
-		else if(!lastOwnerUpdate || GetGame().GetWorld().GetWorldTime() - lastOwnerUpdate > 500)
+		else if (!lastOwnerUpdate || worldTime - lastOwnerUpdate > 500)
 		{
 			TurretControllerComponent turret = targetData.GetTurretEntity();
 			
 			// If launcher is in a turret
-			if(turret)
+			if (turret)
 			{
-				aimDir = turret.GetCurrentSights().GetSightsDirectionUntransformed();
-				aimPos = turret.GetCurrentSights().GetSightsRearPosition();
+				BaseSightsComponent sights = turret.GetCurrentSights();
+				if (sights)
+				{
+					aimDir = sights.GetSightsDirectionUntransformed();
+					aimPos = sights.GetSightsRearPosition();
+				}
 			}
-			else
+			else if (shooter)
 			{
-				aimDir = shooter.GetHeadAimingComponent().GetAimingDirectionWorld();
-				aimDir[0] = -aimDir[0];
-				aimPos = shooter.EyePosition();
+				AimingComponent headAim = shooter.GetHeadAimingComponent();
+				if (headAim)
+				{
+					aimDir = headAim.GetAimingDirectionWorld();
+					aimDir[0] = -aimDir[0];
+					aimPos = shooter.EyePosition();
+				}
 			}
 		}
 		
-		vector directionNormal = vector.Direction(aimPos,m_fProjectilePos).Normalized();
-		float dotProd = vector.Dot(aimDir.Normalized(),directionNormal);
-		
-		// Lost tracking due to projectile being obscured or seeker not seeing the shooter.
-		bool losToProjectile = TraceLOS(aimPos, m_fProjectilePos, shooter);
-		if(dotProd < Math.Cos(m_fSeekerAngle * Math.DEG2RAD) || !losToProjectile)
+		if (aimDir == vector.Zero)
 		{
-			targetData.targetPosition = Vector(0,0,0); // Continue in a straight line
+			targetData.targetPosition = Vector(0, 0, 0);
 		}
-		else 
+		else
 		{
-			targetData.targetPosition =  aimPos +  aimDir * (m_fDistanceFromLaunch + 10);
+			vector directionNormal = vector.Direction(aimPos, m_fProjectilePos).Normalized();
+			float dotProd = vector.Dot(aimDir.Normalized(), directionNormal);
+			
+			// Lost tracking due to projectile being obscured or seeker not seeing the shooter.
+			bool losToProjectile = TraceLOS(aimPos, m_fProjectilePos, shooter);
+			if (dotProd < Math.Cos(m_fSeekerAngle * Math.DEG2RAD) || !losToProjectile)
+			{
+				targetData.targetPosition = Vector(0,0,0); // Continue in a straight line
+			}
+			else 
+			{
+				targetData.targetPosition = aimPos + aimDir * (m_fDistanceFromLaunch + 10);
+			}
 		}
 		
 		m_eTargetData = targetData;
 		
-		if(flightTime > m_fTimeToLive)
+		if (flightTime > m_fTimeToLive)
 			m_eTargetData.detonated = 1;
 		
 		return m_eTargetData;
@@ -93,15 +116,19 @@ class BGONE_SeekerType_SACLOS : BGONE_SeekerType_Base
 	
 	protected bool TraceLOS(vector from, vector to, IEntity shooter)
 	{						
-		ref array<IEntity> exclude = {m_eProjectile, shooter };
-		TraceParam param = new TraceParam;
+		BaseWorld world = GetGame().GetWorld();
+		if (!world)
+			return false;
+
+		ref array<IEntity> exclude = {m_eProjectile, shooter};
+		TraceParam param = new TraceParam();
 		param.Start = from;
 		param.End = to;
 		param.LayerMask = EPhysicsLayerDefs.Projectile;
 		param.Flags = TraceFlags.ANY_CONTACT | TraceFlags.WORLD | TraceFlags.ENTS; 
 		param.ExcludeArray = exclude;
 
-		float percent = GetGame().GetWorld().TraceMove(param, null);
+		float percent = world.TraceMove(param, null);
 		if (percent == 1)	// If trace travels the entire path, return true
 			return true;
 				

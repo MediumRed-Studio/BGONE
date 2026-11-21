@@ -98,30 +98,44 @@ class BGONE_LockType_Base : ScriptAndConfig
 	// Returns the direction where we are looking to aquire a lock.
 	protected array<vector> GetAimDirAndPosOfLauncher(IEntity launcher)
 	{
+		if (!launcher)
+			launcher = m_eLauncher;
+		if (!launcher)
+			return {Vector(0, 0, 0), Vector(0, 0, 0)};
+
 		SCR_2DPIPSightsComponent pipSight = ArmaReforgerScripted.GetCurrentPIPSights();
-		Turret turret = Turret.Cast(m_eLauncher.GetParent());
+		SCR_PIPCamera pipCam;
+		if (pipSight)
+			pipCam = pipSight.GetPIPCamera();
+
+		Turret turret = Turret.Cast(launcher.GetParent());
 		
 		vector mat[4];
-		if(pipSight)
+		if (pipCam)
 		{ 
-			SCR_PIPCamera pipCam = pipSight.GetPIPCamera();
 			pipCam.GetWorldCameraTransform(mat);
 		}
-		else if(turret)
+		else if (turret)
 		{
 			TurretControllerComponent controller = TurretControllerComponent.Cast(turret.FindComponent(TurretControllerComponent));
+			if (!controller)
+				return {Vector(0, 0, 0), Vector(0, 0, 0)};
+
 			BaseCompartmentSlot slot = controller.GetCompartmentSlot();
-			SCR_ChimeraCharacter shooter  = SCR_ChimeraCharacter.Cast(slot.GetOccupant());
-			if(!shooter)
-				return {Vector(0,0,0), Vector(0,0,0)};
+			if (!slot)
+				return {Vector(0, 0, 0), Vector(0, 0, 0)};
+
+			SCR_ChimeraCharacter shooter = SCR_ChimeraCharacter.Cast(slot.GetOccupant());
+			if (!shooter || !shooter.GetWorld())
+				return {Vector(0, 0, 0), Vector(0, 0, 0)};
 			
 			shooter.GetWorld().GetCurrentCamera(mat);
 		}
 		else
 		{
 			SCR_ChimeraCharacter shooter = SCR_ChimeraCharacter.Cast(launcher.GetRootParent());
-			if(!shooter)
-				return {Vector(0,0,0), Vector(0,0,0)};
+			if (!shooter || !shooter.GetWorld())
+				return {Vector(0, 0, 0), Vector(0, 0, 0)};
 			
 			shooter.GetWorld().GetCurrentCamera(mat);
 		}

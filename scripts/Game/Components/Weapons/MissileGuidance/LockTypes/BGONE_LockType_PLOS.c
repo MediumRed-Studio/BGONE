@@ -6,7 +6,7 @@ class BGONE_LockType_PLOS : BGONE_LockType_Base
 	[Attribute("10", UIWidgets.Slider, "Max change in yaw or pitch the launcher can detect. (Degrees of change per second)", "0 45 0.1", category: "BGONE")]
 	protected float m_fMaxAngularChangeDetection;
 	
-	protected float lastYawPitch[] = {0,0};
+	protected float lastYawPitch[2] = {0, 0};
 	protected ref BGONE_TargetData m_cTargetDataPLOS;
 	
 	override void StartLock()
