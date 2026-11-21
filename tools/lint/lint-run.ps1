@@ -146,46 +146,45 @@ function Get-LintCommentStripped {
     $inBlock = $false
 
     foreach ($line in $Lines) {
-        $code = $line
-        if ($IsScript) {
-            if ($inBlock) {
-                $end = $code.IndexOf('*/')
-                if ($end -lt 0) { [void]$result.Add(''); continue }
-                $code = $code.Substring($end + 2)
-                $inBlock = $false
-            }
-            $start = $code.IndexOf('/*')
-            while ($start -ge 0) {
-                $end = $code.IndexOf('*/', $start + 2)
-                if ($end -lt 0) {
-                    $code = $code.Substring(0, $start)
-                    $inBlock = $true
-                    break
-                }
-                $code = $code.Remove($start, $end - $start + 2)
-                $start = $code.IndexOf('/*')
-            }
-        }
-        # Strip // comments while skipping // inside double-quoted string literals.
+        $sb = New-Object System.Text.StringBuilder
         $inStr = $false
         $esc = $false
-        $cut = -1
-        for ($c = 0; $c -lt $code.Length; $c++) {
-            $ch = $code[$c]
-            if ($esc) { $esc = $false; continue }
+        $len = $line.Length
+
+        for ($c = 0; $c -lt $len; $c++) {
+            $ch = $line[$c]
+            if ($inBlock) {
+                if (($ch -eq '*') -and (($c + 1) -lt $len) -and ($line[$c + 1] -eq '/')) {
+                    $inBlock = $false
+                    [void]$sb.Append(' ')
+                    $c++
+                }
+                continue
+            }
             if ($inStr) {
-                if ($ch -eq '\') { $esc = $true }
+                [void]$sb.Append($ch)
+                if ($esc) { $esc = $false }
+                elseif ($ch -eq '\') { $esc = $true }
                 elseif ($ch -eq '"') { $inStr = $false }
                 continue
             }
-            if ($ch -eq '"') { $inStr = $true; continue }
-            if (($ch -eq '/') -and (($c + 1) -lt $code.Length) -and ($code[$c + 1] -eq '/')) {
-                $cut = $c
-                break
+            if ($ch -eq '"') {
+                $inStr = $true
+                [void]$sb.Append($ch)
+                continue
             }
+            if (($ch -eq '/') -and (($c + 1) -lt $len)) {
+                $next = $line[$c + 1]
+                if ($next -eq '/') { break }
+                if ($IsScript -and ($next -eq '*')) {
+                    $inBlock = $true
+                    $c++
+                    continue
+                }
+            }
+            [void]$sb.Append($ch)
         }
-        if ($cut -ge 0) { $code = $code.Substring(0, $cut) }
-        [void]$result.Add($code)
+        [void]$result.Add($sb.ToString())
     }
 
     return @($result)
@@ -1454,6 +1453,13 @@ function Invoke-LintSelfTest {
     Invoke-LintFile -File (Join-Path $selfRoot 'enforce\clean_enforce.c') -Rules $Rules
     $hClean = @($script:Findings | Where-Object { $_.Rule -like 'ENF00*' })
     Assert-LintCase 'ENF001-003 clean (comments/strings ignored, valid Enforce)' ($hClean.Count -eq 0) ("expected 0, got " + $hClean.Count)
+
+    Reset-LintState -Root $selfRoot
+    Invoke-LintFile -File (Join-Path $selfRoot 'enforce\bad_comment_markers.c') -Rules $Rules
+    $hCm2 = @($script:Findings | Where-Object { $_.Rule -eq 'ENF002_ArrayCompoundAssign' -and $_.Severity -eq 'error' })
+    $hCm3 = @($script:Findings | Where-Object { $_.Rule -eq 'ENF003_NoTernary' -and $_.Severity -eq 'error' })
+    Assert-LintCase 'Comment-stripper regression (/* in string literal does not mask ENF003)' ($hCm3.Count -eq 1) ("expected 1 ENF003, got " + $hCm3.Count)
+    Assert-LintCase 'Comment-stripper regression (/* in // comment does not mask ENF002)' ($hCm2.Count -eq 1) ("expected 1 ENF002, got " + $hCm2.Count)
 
     $enf4Rule = Get-LintProp -Object $Rules -Name 'ENF004_ScriptsLowercase'
     Reset-LintState -Root (Join-Path $selfRoot 'enf004\bad')
