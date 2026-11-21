@@ -1,0 +1,18 @@
+FrameWidgetClass {
+ Name "Root"
+ {
+  TextWidgetClass "{1111111111111112}" {
+   Name "PresentWidget"
+   Visible 0
+   "Text Horizontal Align" Center
+   Slot OverlaySlot "{1111111111111113}" {
+   }
+  }
+  FrameWidgetClass "{1111111111111114}" {
+   Name "BadLayoutSlot"
+   Slot LayoutSlot "{1111111111111115}" {
+    SizeX 120
+   }
+  }
+ }
+}
