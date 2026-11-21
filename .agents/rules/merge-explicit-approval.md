@@ -1,11 +1,13 @@
-# Merge Rule: No Auto-Merge — Riley Gives the Explicit Go-Ahead
+# Merge Rule: Clear Reviews & Green Checks for Dev; Explicit Approval for main
 
 ## Rule
-Never merge a PR without Riley's explicit merge instruction for THAT PR. Opening PRs, pushing fix-ups, answering review, and re-running QA rigs are all fine unprompted. The merge action itself waits.
+- **PRs targeting `Dev`** (owner authorization, 2026-11-21, `#62`): may be squash-merged once **all** of the following hold at the **current PR head**:
+  1. `@codex review` is clear at the current head (zero outstanding P1/P2 findings).
+  2. GitHub CI (`Lint`) and any required `--priority 6` QA rig verification are green at the current head (with video evidence posted when player-visible behavior changed).
+- **Promotions or resets to `main` and GitHub issue closures ALWAYS require Riley's explicit approval.** Green checks, watch notifications, or a clear Codex review NEVER authorize merging/promoting to `main` or closing an issue.
 
 ## Details
-1. An explicit instruction names the PR (number or title) with a merge verb ("merge it", "lets merge them", "go ahead", "squash it"). Green checks, watch notifications, a clear `@codex review`, or "looks good" from another agent are NEVER merge authorization.
-2. A merge instruction authorises the merge only — not issue closure (see `issue-closure-manual-verification.md`). Require a separate explicit close instruction, or confirmation that manual verification passed.
-3. Promotions from `Dev` to `main` and issue closures ALWAYS require Riley's explicit approval.
-4. On merge instruction for a PR into `Dev`: squash-merge (`gh pr merge <N> -R MediumRed-Studio/BGONE --squash --delete-branch`), post a status comment with verification verdicts, post a `DIGEST` on the linked issue (`.agents/rules/session-digests.md`), and remove the worktree.
-5. Without instruction: leave the PR open, report readiness (checks state, Codex review state, verify summary, what the merge will do), and continue with other work.
+1. Merging a PR authorizes the merge only — never issue closure (see `issue-closure-manual-verification.md`). Issues stay open until Riley manually verifies in-game and confirms closure.
+2. On merge into `Dev`: squash-merge (`gh pr merge <N> -R MediumRed-Studio/BGONE --squash --delete-branch`), post a status comment with verification verdicts, post a `DIGEST` on the linked issue (`.agents/rules/session-digests.md`), and remove the worktree.
+3. If any check is red, any Codex finding is unresolved, or a review was only against an older head, do not merge. Fix, push, re-verify, and re-clear `@codex review` first.
+4. For any PR targeting `main` (release promotion): leave the PR open, report readiness (checks state, Codex review state, verify summary, what the merge will do), and wait for Riley's explicit go-ahead.
