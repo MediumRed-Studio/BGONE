@@ -1,0 +1,12 @@
+FrameWidgetClass {
+ Name "Root"
+ {
+  FrameWidgetClass "{2222222222222222}" {
+   Name "TitleLabel"
+   Slot FrameWidgetSlot "{2222222222222223}" {
+    SizeX 200
+    SizeY 40
+   }
+  }
+ }
+}
