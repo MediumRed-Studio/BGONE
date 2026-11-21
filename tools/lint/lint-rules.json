@@ -1,0 +1,147 @@
+{
+  "_readme": "Config for tools/lint/lint-run.ps1 (MediumRed-Studio/BGONE). Severity 'error' fails the run (exit 1); 'warn' prints without failing.",
+
+  "scan": {
+    "_comment": "Globs are relative to the worktree root. tools/lint/selftest holds deliberate bad/good fixtures and is excluded from normal passes.",
+    "fileGlobs": [
+      "scripts/**/*.c",
+      "UI/**/*.layout",
+      "Prefabs/**/*.et",
+      "Configs/**/*.conf",
+      "Missions/**/*.conf",
+      "Worlds/**/*.layer",
+      "*.md",
+      "docs/**/*.md",
+      ".agents/**/*.md",
+      "tools/**/*.md"
+    ],
+    "excludePathSubstrings": [
+      "tools\\lint\\selftest",
+      "tools/lint/selftest"
+    ]
+  },
+
+  "rules": {
+    "DIAG001_ShippedCodeReferencesDiag": {
+      "enabled": true,
+      "severity": "error",
+      "fileTypes": [ "*.c", "*.et", "*.conf", "*.layout", "*.ct", "*.layer" ],
+      "_why": "scripts/Game/Diag/ holds dev-only QA bots and diagnostics that .github/workflows/main.yml strips on release. Any shipped file referencing a Diag symbol would fail to compile on main.",
+      "diagFolderSegment": "/scripts/Game/Diag/",
+      "excludeTopDirs": [ ".git", ".qa", ".agents", ".claude", ".agent", "tools" ],
+      "scanExtensions": [ ".c", ".et", ".conf", ".layout", ".ct", ".layer" ],
+      "allowReferences": []
+    },
+
+    "MP001_IdentityDerivedNotWire": {
+      "enabled": true,
+      "severity": "error",
+      "fileTypes": [ "*.c" ],
+      "_why": "A client controls its own RPC arguments. Any [RplRpc(..., RplRcver.Server)] handler accepting an acting-player identity parameter (playerId, senderPlayerId, pid, etc.) must derive identity from PlayerController.GetPlayerId() instead of trusting the wire value.",
+      "allowHandlers": []
+    },
+
+    "BOUNDARY003_ModdedClassStripsVanillaAttributes": {
+      "enabled": true,
+      "severity": "error",
+      "fileTypes": [ "*.c" ],
+      "_why": "Enforce `modded class X` silently drops X's vanilla class attribute list (such as [BaseContainerProps()]), making the class invisible to configs. Add [InheritedAttribute()] directly above the modded class declaration.",
+      "vanillaManifest": "tools/lint/vanilla-class-attributes.json",
+      "vanillaSourcePath": "Z:\\Reforger Source 1.9.0.37",
+      "staleAfterDays": 180,
+      "allowStrippedDeclarations": []
+    },
+
+    "GUID001_LocalRefMustResolve": {
+      "enabled": true,
+      "severity": "error",
+      "fileTypes": [ "*.c", "*.layout", "*.et", "*.conf", "*.layer" ],
+      "_why": "Flags duplicate .meta GUIDs, dangling local/BGONE {GUID}path references, and references whose path disagrees (case-sensitively) with the owning .meta Name.",
+      "localPathPattern": "(?i)(?:BGONE|LockOn|testImageSet|MapArtilleryComputer)",
+      "excludeMetaTopDirs": [ ".git", ".qa", "tools" ],
+      "_baselineNote": "Pre-existing upstream SpaceStrider/BGONE findings on Dev @ 1a8751e (6 broken .meta Name paths causing 8 mismatches + 6 dangling GUIDs in upstream LauncherTest layers). Reported as info so PR 1 CI stays green while parallel PR 3 repairs the upstream metas/layers; stale entries warn once fixed so this debt ledger shrinks to empty.",
+      "baseline": [
+        { "file": "Configs/EntityCatalog/US/US_InventoryItems.conf", "ref": "{E6E70B5FFAC5FEA4}Prefabs/Weapons/Launchers/BGONE_Launcher_PLOS.et", "_why": "Upstream meta Name mismatch (BGONE_Launcher_PLOS2.et); tracked for PR 3 fix." },
+        { "file": "Configs/EntityCatalog/US/US_InventoryItems.conf", "ref": "{6DEF77B8CDF7528D}Prefabs/Weapons/Launchers/BGONE_Launcher_SACLOS.et", "_why": "Upstream meta Name mismatch (BGONE_Launcher_SACLOS2.et); tracked for PR 3 fix." },
+        { "file": "Configs/EntityCatalog/US/US_InventoryItems.conf", "ref": "{82C0AFB409A3AE0B}Prefabs/Weapons/Launchers/BGONE_Launcher_VIS.et", "_why": "Upstream meta Name mismatch (M72/BGONE_.et); tracked for PR 3 fix." },
+        { "file": "Prefabs/Weapons/Launchers/BGONE_Launcher_PLOS.et", "ref": "{9F9C7B6642576FB6}Prefabs/Weapons/Ammo/BGONE_Ammo_Missile_PLOS.et", "_why": "Upstream meta Name mismatch (BGONE_Ammo_Missile_PLOS2.et); tracked for PR 3 fix." },
+        { "file": "Prefabs/Weapons/Launchers/BGONE_Launcher_SACLOS.et", "ref": "{D6C5CA589CA1338B}Prefabs/Weapons/Ammo/BGONE_Ammo_Missile_SACLOS.et", "_why": "Upstream meta Name mismatch (BGONE_Ammo_Missile_SACLOS2.et); tracked for PR 3 fix." },
+        { "file": "Prefabs/Weapons/Launchers/BGONE_Launcher_VIS.et", "ref": "{A5C5EDACAA02EFA5}Prefabs/Weapons/Ammo/BGONE_Ammo_Missile_VIS_TOP.et", "_why": "Upstream meta Name mismatch (BGONE_Missile.et); tracked for PR 3 fix." },
+        { "file": "Worlds/MPTest/MPTest_Layers/default.layer", "ref": "{82C0AFB409A3AE0B}Prefabs/Weapons/Launchers/BGONE_Launcher_VIS.et", "_why": "Upstream meta Name mismatch (M72/BGONE_.et); tracked for PR 3 fix." },
+        { "file": "Worlds/MPTest/MPTest_Layers/default.layer", "ref": "{9F9C7B6642576FB6}Prefabs/Weapons/Ammo/BGONE_Ammo_Missile_PLOS.et", "_why": "Upstream meta Name mismatch (BGONE_Ammo_Missile_PLOS2.et); tracked for PR 3 fix." },
+        { "file": "Worlds/LauncherTest/BGONE_BmpTest_Layers/BGONE_Test.layer", "ref": "{5F7AE6931FD9801F}Prefabs/Weapons/Launchers/BGONE_Launcher_SACLOS.et", "_why": "Upstream dangling GUID in LauncherTest layer; tracked for PR 3 fix." },
+        { "file": "Worlds/LauncherTest/BGONE_LauncherTestWorld_Layers/BGONE_Test.layer", "ref": "{5E7D2BE3152D3060}Prefabs/Weapons/Ammo/BGONE_Ammo_Missile_PLOS.et", "_why": "Upstream dangling GUID in LauncherTest layer; tracked for PR 3 fix." },
+        { "file": "Worlds/LauncherTest/BGONE_LauncherTestWorld_Layers/BGONE_Test.layer", "ref": "{5F7AE6931FD9801F}Prefabs/Weapons/Launchers/BGONE_Launcher_SACLOS.et", "_why": "Upstream dangling GUID in LauncherTest layer; tracked for PR 3 fix." },
+        { "file": "Worlds/LauncherTest/BGONE_LauncherTestWorld_Layers/BGONE_Test.layer", "ref": "{8D2EE2208265FD4A}Prefabs/Weapons/Launchers/BGONE_Launcher_PLOS.et", "_why": "Upstream dangling GUID in LauncherTest layer; tracked for PR 3 fix." },
+        { "file": "Worlds/LauncherTest/BGONE_LauncherTestWorld_Layers/BGONE_Test.layer", "ref": "{A05613F5CDB2E3CD}Prefabs/Weapons/Launchers/BGONE_Launcher_VIS.et", "_why": "Upstream dangling GUID in LauncherTest layer; tracked for PR 3 fix." },
+        { "file": "Worlds/LauncherTest/BGONE_LauncherTestWorld_Layers/BGONE_Test.layer", "ref": "{E28D3186FCB79063}Prefabs/Weapons/Ammo/BGONE_Ammo_Missile_VIS_TOP.et", "_why": "Upstream dangling GUID in LauncherTest layer; tracked for PR 3 fix." }
+      ],
+      "allowReferences": []
+    },
+
+    "UI001_WidgetNameContract": {
+      "enabled": true,
+      "severity": "error",
+      "fileTypes": [ "*.c", "*.layout", "*.conf" ],
+      "_why": "Verifies menu root FindAnyWidget literal names against bound .layout files and catches fatal Reforger layout keywords (OverlaySlot, SizeX/SizeY inside LayoutSlot, Visible, Text Horizontal/Vertical Align).",
+      "menuPresetConfigGlob": "*chimeraMenus.conf",
+      "rootReceivers": [ "m_wRoot" ],
+      "baseline": [],
+      "reportUnboundWidgets": false
+    },
+
+    "DOCS001_MojibakeSequence": {
+      "enabled": true,
+      "severity": "error",
+      "fileTypes": [ "*.md" ],
+      "_why": "Detects UTF-8 text accidentally decoded as cp1252 and re-encoded.",
+      "allowFiles": []
+    },
+
+    "DOCS002_TransliterationDamage": {
+      "enabled": true,
+      "severity": "error",
+      "fileTypes": [ "*.md" ],
+      "_why": "Detects doubled question marks left by lossy legacy-codepage transliteration.",
+      "allowFiles": []
+    },
+
+    "DOCS003_Utf8Bom": {
+      "enabled": true,
+      "severity": "error",
+      "fileTypes": [ "*.md" ],
+      "_why": "Markdown files must be UTF-8 without BOM so frontmatter and tooling parse reliably.",
+      "allowFiles": []
+    },
+
+    "ENF001_StackedAttributes": {
+      "enabled": true,
+      "severity": "error",
+      "fileTypes": [ "*.c" ],
+      "_why": "Stacking two attribute decorators (e.g. [Attribute(...)] followed by [RplProp(...)]) breaks the Enforce Script parser.",
+      "allowFiles": []
+    },
+
+    "ENF002_ArrayCompoundAssign": {
+      "enabled": true,
+      "severity": "error",
+      "fileTypes": [ "*.c" ],
+      "_why": "Enforce Script rejects compound assignment (+=, -=, *=, /=) on array element accessors like arr[i] += x.",
+      "allowFiles": []
+    },
+
+    "ENF003_NoTernary": {
+      "enabled": true,
+      "severity": "error",
+      "fileTypes": [ "*.c" ],
+      "_why": "Enforce Script has no ternary (?:) operator; using it fails compilation and desyncs the parser.",
+      "allowFiles": []
+    },
+
+    "ENF004_ScriptsLowercase": {
+      "enabled": true,
+      "severity": "error",
+      "_why": "The addon scripts directory must be lowercase 'scripts' for case-sensitive Linux dedicated servers."
+    }
+  }
+}
