@@ -1,0 +1,24 @@
+name: Lint
+
+on:
+  pull_request:
+    branches:
+      - Dev
+
+jobs:
+  lint:
+    # lint-run.ps1 targets Windows PowerShell 5.1 (no pwsh-only syntax); windows-latest ships it.
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Full lint pass over the PR's tree (exit 1 on any error finding) + the self-test fixtures,
+      # which assert every rule against a positive AND a negative control. Both must pass.
+      - name: Lint (full pass)
+        shell: powershell
+        run: .\tools\lint\lint-run.ps1 -Worktree "$env:GITHUB_WORKSPACE"
+
+      - name: Lint (self-test)
+        shell: powershell
+        run: .\tools\lint\lint-run.ps1 -SelfTest

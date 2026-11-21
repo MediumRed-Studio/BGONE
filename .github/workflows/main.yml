@@ -1,0 +1,33 @@
+name: Strip Dev Paths on Main
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Public fork of SpaceStrider/BGONE: preserve all source comments, README.md, LICENSE,
+      # and CONTRIBUTOR-LICENSE. Strip only internal agent rules, QA/lint tooling, and Diag scripts.
+      - name: Remove Dev and Internal Paths
+        run: |
+          rm -rf .agents
+          rm -rf .claude
+          rm -rf .agent
+          rm -rf tools
+          rm -rf scripts/Game/Diag
+          rm -f scripts/Game/Diag.meta
+
+      - name: Commit and Push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || (git commit -m "chore: strip dev-only paths for main release" && git push)
