@@ -1,0 +1,325 @@
+{
+  "schemaVersion": 2,
+  "_readme": [
+    "Configuration for BGONE headless QA runners (tools/qa/qa-run.ps1 and tools/qa/mp-run.ps1).",
+    "Single-addon layout: addon.gproj lives at the worktree root (ID 'BGONE', GUID '5F1EE615E7AE3106').",
+    "External staging junction C:\\wt\\.bgone-stage\\<sha1-8>\\Addons\\BGONE -> <worktree> supplies -addonsDir",
+    "so sibling worktrees under C:\\wt are never scanned and no symlink is created inside the checkout.",
+    "Both stable and exp tracks target Reforger 1.9.0.37 (retail server + retail client pair for MP)."
+  ],
+  "defaults": {
+    "targetEngine": "stable",
+    "module": "BGONE",
+    "addonId": "BGONE",
+    "addonGuid": "5F1EE615E7AE3106",
+    "vanillaAddonGuid": "58D0FB3206B6F859",
+    "gate": "workbench",
+    "timeoutSec": 1200,
+    "quietSec": 60,
+    "settledQuietSec": 10,
+    "graceSec": 10,
+    "pollSec": 2,
+    "pidResolveSec": 20,
+    "keepRuns": 20,
+    "queueTimeoutSec": 14400,
+    "addonResolutionEnforce": "fail",
+    "logFileName": "console.log",
+    "errorLogFileName": "error.log",
+    "reportFileNames": [
+      "junit.xml",
+      "autotest.xml",
+      "report.xml"
+    ],
+    "reportExcludePatterns": [
+      "*settings*.xml",
+      "*Settings*.xml",
+      "*.rpt.xml",
+      "*profile*.xml"
+    ],
+    "fallbackLogRoots": [
+      "%USERPROFILE%\\Documents\\My Games\\ArmaReforgerWorkbench\\logs"
+    ],
+    "concurrency": "concurrent",
+    "worktreeSafety": {
+      "requireSpaceFreePath": true,
+      "forbiddenRootSubstrings": [
+        "Documents\\My Games\\ArmaReforgerWorkbench\\addons"
+      ]
+    },
+    "rdbChurnGlob": "resourceDatabase.rdb",
+    "memory": {
+      "lowFreeWarnMb": 6144,
+      "launchNeedMb": 5120,
+      "launchWaitSec": 120,
+      "settleTimeoutSec": 120,
+      "settlePollSec": 5,
+      "settleToleranceMb": 256,
+      "settleStableSamples": 3,
+      "struggleFreeMb": 700,
+      "struggleCpuPct": 97,
+      "struggleFps": 8,
+      "sampleSec": 5
+    }
+  },
+  "engines": {
+    "stable": {
+      "label": "stable",
+      "validatedVersion": "1.9.0.37",
+      "exeCandidates": [
+        "Z:\\SteamLibrary\\steamapps\\common\\Arma Reforger Tools\\Workbench\\ArmaReforgerWorkbenchSteamDiag.exe",
+        "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Arma Reforger Tools\\Workbench\\ArmaReforgerWorkbenchSteamDiag.exe"
+      ],
+      "gameDirCandidates": [
+        "Z:\\SteamLibrary\\steamapps\\common\\Arma Reforger",
+        "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Arma Reforger"
+      ],
+      "gameProjectRelativePath": "addons\\data\\ArmaReforger.gproj",
+      "processNamePrefix": "ArmaReforgerWorkbench",
+      "wbModule": "ResourceManager",
+      "argTemplate": [
+        "-gproj",
+        "{GPROJ}",
+        "-addonsDir",
+        "{ADDONSDIR}",
+        "-wbModule={WBMODULE}",
+        "-profile",
+        "{PROFILE}"
+      ],
+      "extraArgs": [],
+      "rewritesResourceDatabase": true,
+      "server": {
+        "label": "stable-server",
+        "exeCandidates": [
+          "Z:\\SteamLibrary\\steamapps\\common\\Arma Reforger Server\\ArmaReforgerServer.exe",
+          "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Arma Reforger Server\\ArmaReforgerServer.exe"
+        ],
+        "gameDirCandidates": [
+          "Z:\\SteamLibrary\\steamapps\\common\\Arma Reforger Server",
+          "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Arma Reforger Server"
+        ],
+        "gameProjectRelativePath": "addons\\data\\ArmaReforger.gproj",
+        "processNamePrefix": "ArmaReforgerServer",
+        "argTemplate": [
+          "-addonsDir",
+          "{ADDONSDIR}",
+          "-addons",
+          "{ADDONLIST}",
+          "-listScenarios",
+          "-profile",
+          "{PROFILE}"
+        ],
+        "extraArgs": [
+          "-nothrow"
+        ],
+        "rewritesResourceDatabase": false
+      },
+      "mp": {
+        "label": "stable-mp",
+        "excludeAddons": [],
+        "worldPath": "Worlds/MPTest/MPTest.ent",
+        "missionHeaderPath": "Missions/BGONE_MPTest.conf",
+        "botCliFlag": "-bgoneMpBot",
+        "botScenarioCliFlag": "-bgoneMpScenario",
+        "loadTimeoutSec": 360,
+        "scenarioTimeoutSec": 180,
+        "gameplayScenarioTimeoutSec": 240,
+        "lateJoin": {},
+        "sessionTouches": {},
+        "teardownErrors": {
+          "scenarios": [],
+          "messages": [],
+          "vmSites": []
+        },
+        "expectedErrors": {
+          "all": [
+            "BGONE_MPBOT \\| (VERDICT|SERVER_ACK) \\|",
+            "Leaked '.*' script instance"
+          ]
+        },
+        "server": {
+          "exeCandidates": [
+            "Z:\\SteamLibrary\\steamapps\\common\\Arma Reforger Server\\ArmaReforgerServer.exe",
+            "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Arma Reforger Server\\ArmaReforgerServer.exe"
+          ],
+          "gameDirCandidates": [
+            "Z:\\SteamLibrary\\steamapps\\common\\Arma Reforger Server",
+            "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Arma Reforger Server"
+          ],
+          "gameProjectRelativePath": "addons\\data\\ArmaReforger.gproj",
+          "processNamePrefix": "ArmaReforgerServer",
+          "argTemplate": [
+            "-server",
+            "{WORLDPATH}",
+            "-MissionHeader",
+            "{MISSIONHEADER}",
+            "-addonsDir",
+            "{ADDONSDIR}",
+            "-addons",
+            "{ADDONLIST}",
+            "-profile",
+            "{PROFILE}",
+            "-maxFPS",
+            "30",
+            "-nothrow",
+            "-logLevel",
+            "normal",
+            "-bgoneMpBot",
+            "-bgoneMpScenario",
+            "{SCENARIO}"
+          ],
+          "readyPattern": "NETWORK\\s+:\\s*Starting RPL server, listening on",
+          "readyTimeoutSec": 240,
+          "selfExits": false
+        },
+        "client": {
+          "exeCandidates": [
+            "Z:\\SteamLibrary\\steamapps\\common\\Arma Reforger\\ArmaReforgerSteam.exe",
+            "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Arma Reforger\\ArmaReforgerSteam.exe"
+          ],
+          "gameDirCandidates": [
+            "Z:\\SteamLibrary\\steamapps\\common\\Arma Reforger",
+            "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Arma Reforger"
+          ],
+          "gameProjectRelativePath": "addons\\data\\ArmaReforger.gproj",
+          "processNamePrefix": "ArmaReforgerSteam",
+          "argTemplate": [
+            "-addonsDir",
+            "{ADDONSDIR}",
+            "-addons",
+            "{ADDONLIST}",
+            "-client",
+            "-connect",
+            "127.0.0.1",
+            "-port",
+            "2001",
+            "-rpl-reconnect",
+            "-rpl-timeout-disable",
+            "-profile",
+            "{PROFILE}",
+            "-window",
+            "-forceupdate",
+            "-nofocus",
+            "-noThrow",
+            "-maxFPS",
+            "30",
+            "-bgoneMpBot",
+            "-bgoneMpScenario",
+            "{SCENARIO}",
+            "-bgoneMpClient",
+            "{CLIENTINDEX}"
+          ],
+          "connectedPattern": "RPL\\s+:\\s*Client event Connected",
+          "selfExits": false
+        },
+        "patterns": {
+          "BotArmed": "BGONE_MPBOT \\| ARMED",
+          "BotConnected": "BGONE_MPBOT \\| CONNECTED \\| localPlayerId=(?<id>\\d+) onClient=(?<onclient>\\d)",
+          "BotServerAck": "BGONE_MPBOT \\| SERVER_ACK \\| (?<scenario>[a-zA-Z0-9_-]+) \\| (?<result>PASS|FAIL) \\|",
+          "BotVerdict": "BGONE_MPBOT \\| VERDICT \\| (?<result>PASS|FAIL) \\| (?<scenario>[a-zA-Z0-9_-]+) \\| (?<detail>.*)$"
+        }
+      }
+    },
+    "exp": {
+      "label": "exp",
+      "validatedVersion": "1.9.0.37",
+      "exeCandidates": [
+        "Z:\\SteamLibrary\\steamapps\\common\\Arma Reforger Experimental Tools\\Workbench\\ArmaReforgerWorkbenchSteamDiag.exe",
+        "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Arma Reforger Experimental Tools\\Workbench\\ArmaReforgerWorkbenchSteamDiag.exe"
+      ],
+      "gameDirCandidates": [
+        "Z:\\SteamLibrary\\steamapps\\common\\Arma Reforger Experimental",
+        "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Arma Reforger Experimental"
+      ],
+      "gameProjectRelativePath": "addons\\data\\ArmaReforger.gproj",
+      "processNamePrefix": "ArmaReforgerWorkbench",
+      "wbModule": "ResourceManager",
+      "argTemplate": [
+        "-gproj",
+        "{GPROJ}",
+        "-addonsDir",
+        "{ADDONSDIR}",
+        "-wbModule={WBMODULE}",
+        "-profile",
+        "{PROFILE}"
+      ],
+      "extraArgs": [],
+      "rewritesResourceDatabase": true,
+      "server": {
+        "label": "exp-server",
+        "exeCandidates": [
+          "Z:\\SteamLibrary\\steamapps\\common\\Arma Reforger Experimental Server\\ArmaReforgerServer.exe",
+          "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Arma Reforger Experimental Server\\ArmaReforgerServer.exe"
+        ],
+        "gameDirCandidates": [
+          "Z:\\SteamLibrary\\steamapps\\common\\Arma Reforger Experimental Server",
+          "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Arma Reforger Experimental Server"
+        ],
+        "gameProjectRelativePath": "addons\\data\\ArmaReforger.gproj",
+        "processNamePrefix": "ArmaReforgerServer",
+        "argTemplate": [
+          "-addonsDir",
+          "{ADDONSDIR}",
+          "-addons",
+          "{ADDONLIST}",
+          "-listScenarios",
+          "-profile",
+          "{PROFILE}"
+        ],
+        "extraArgs": [
+          "-nothrow"
+        ],
+        "rewritesResourceDatabase": false
+      },
+      "mp": {
+        "inherits": "stable",
+        "label": "exp-mp",
+        "server": {
+          "exeCandidates": [
+            "Z:\\SteamLibrary\\steamapps\\common\\Arma Reforger Experimental Server\\ArmaReforgerServer.exe",
+            "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Arma Reforger Experimental Server\\ArmaReforgerServer.exe"
+          ],
+          "gameDirCandidates": [
+            "Z:\\SteamLibrary\\steamapps\\common\\Arma Reforger Experimental Server",
+            "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Arma Reforger Experimental Server"
+          ]
+        },
+        "client": {
+          "exeCandidates": [
+            "Z:\\SteamLibrary\\steamapps\\common\\Arma Reforger Experimental\\ArmaReforgerSteam.exe",
+            "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Arma Reforger Experimental\\ArmaReforgerSteam.exe"
+          ],
+          "gameDirCandidates": [
+            "Z:\\SteamLibrary\\steamapps\\common\\Arma Reforger Experimental",
+            "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Arma Reforger Experimental"
+          ]
+        }
+      }
+    }
+  },
+  "patterns": {
+    "CompileError": "SCRIPT\\s+\\(E\\):\\s*(?<body>.+?)\\s*$",
+    "CompileWarning": "SCRIPT\\s+\\(W\\):\\s*(?<body>.+?)\\s*$",
+    "Location": "^@\"(?<file>[^\"]+),(?<line>\\d+)\"\\s*:\\s*(?<msg>.*)$",
+    "CompileStart": "SCRIPT\\s+:\\s*Compiling Game scripts\\s*$",
+    "CompileDone": "PROFILING\\s+:\\s*Compiling Game scripts took:",
+    "WorkbenchStarted": "PROFILING\\s+:\\s*Workbench startup took:",
+    "CompileFailedSentinel": "Can't compile \"Game\" script module!",
+    "ModuleLoaded": "SCRIPT\\s+:\\s*Module:\\s*Game;",
+    "CliParams": "CLI Params:\\s*(?<args>.*)$",
+    "Hang": "ENGINE\\s+\\(W\\):\\s*Application hangs",
+    "InitTook": "PROFILING\\s+:\\s*Workbench (Init Engine|startup) took:\\s*(?<ms>[\\d\\.]+)\\s*ms",
+    "AvailableAddonsHeader": "ENGINE\\s+:\\s*(Available|Loaded) addons:",
+    "AddonEntry": "gproj:\\s*'(?<path>[^']+)'\\s*guid:\\s*'(?<guid>[0-9A-Fa-f]+)'(?<flags>.*)$",
+    "AnySeverity": "^\\s*[\\d:\\.]*\\s*(?<category>[A-Z_]+)\\s+\\((?<sev>[EWF])\\):\\s*(?<body>.*)$",
+    "SetupError": [
+      "\\bENGINE\\s+\\(E\\):",
+      "\\bRESOURCES\\s+\\(E\\):",
+      "\\bINIT\\s+\\(E\\):"
+    ],
+    "SetupErrorIgnore": [
+      "Unknown keyword/data 'ClusteredTilingUserSettings'",
+      "Unable to initialize a game/gamelib",
+      "Steamworks: RequestCurrentStats failed"
+    ]
+  }
+}
