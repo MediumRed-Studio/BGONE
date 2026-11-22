@@ -2,7 +2,7 @@
 	\brief Headless MP QA bot scenarios for VIS, PLOS, and SACLOS missile guidance math,
 	target switching, seeker self-destruct on lost track, and beam-riding steering.
 
-	Scenarios (single-client + dedicated server):
+	Scenarios (2-client shooter + observer + dedicated server):
 	  - vis_top_static    : VIS launcher in Top Attack (profile 1) locking static BTR70, climbing
 	                        past +12m loft altitude into terminal dive without FOV self-destruct.
 	  - vis_target_switch : VIS launcher locking Target A then shifting aim to Target B (~14 deg
@@ -38,6 +38,133 @@ class BGONE_GuidanceBotConst
 	static const int QUERY_GUIDANCE_TARGET_INFO = 7301;
 	static const int QUERY_GUIDANCE_MISSILE_STATE = 7302;
 	static const int QUERY_GUIDANCE_DISRUPT_TARGET = 7303;
+	static const int QUERY_GUIDANCE_SYNC_READY = 7304;
+
+	static const int MIN_OBSERVER_SYNC_COUNT = 2;
+	static const int MIN_OBSERVER_FRAME_TICKS = 10;
+	static const float MAX_OBSERVER_CONVERGED_ERR_M = 2.0;
+	static const int MAX_OBSERVER_SNAPS = 24;
+}
+
+//------------------------------------------------------------------------------------------------
+//! Server-side coordinator synchronizing Client 1 (shooter) and Client 2 (observer) across all
+//! guidance scenarios so both controllers query one shared staged state without extra RPCs.
+class BGONE_GuidanceBotCoordinator
+{
+	protected static const int READY_STALE_MS = 120000;
+
+	protected static int s_iClient1ReadyTick;
+	protected static int s_iClient2ReadyTick;
+	protected static bool s_bClient1Staged;
+	protected static string s_sScenarioName;
+	protected static IEntity s_TargetA;
+	protected static IEntity s_TargetB;
+	protected static int s_iStartEpoch;
+	protected static vector s_vTargetAPos;
+	protected static vector s_vTargetBPos;
+	protected static bool s_bDisrupted;
+	protected static vector s_vCorridorDir;
+	protected static vector s_vStartPos;
+
+	//------------------------------------------------------------------------------------------------
+	static void BeginClient1Staging(string scenarioName, vector startPos)
+	{
+		int now = System.GetTickCount();
+		s_iClient1ReadyTick = 0;
+
+		if (s_sScenarioName != scenarioName || (s_iClient2ReadyTick > 0 && (now - s_iClient2ReadyTick) > READY_STALE_MS))
+			s_iClient2ReadyTick = 0;
+
+		s_sScenarioName = scenarioName;
+		s_bClient1Staged = false;
+		s_TargetA = null;
+		s_TargetB = null;
+		s_vTargetAPos = vector.Zero;
+		s_vTargetBPos = vector.Zero;
+		s_bDisrupted = false;
+		s_vCorridorDir = Vector(0.707, 0.0, -0.707);
+		s_vStartPos = startPos;
+		s_iStartEpoch = BGONE_GuidedMissileComponent.GetLastLaunchEpoch();
+	}
+
+	//------------------------------------------------------------------------------------------------
+	static void FinishClient1Staging(vector corridorDir, IEntity targetA, IEntity targetB)
+	{
+		s_vCorridorDir = corridorDir;
+		s_TargetA = targetA;
+		s_TargetB = targetB;
+		if (targetA)
+			s_vTargetAPos = targetA.GetOrigin();
+		else
+			s_vTargetAPos = vector.Zero;
+
+		if (targetB)
+			s_vTargetBPos = targetB.GetOrigin();
+		else
+			s_vTargetBPos = vector.Zero;
+
+		s_bClient1Staged = true;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	static bool IsClient1Staged() { return s_bClient1Staged; }
+	static IEntity GetTargetA() { return s_TargetA; }
+	static IEntity GetTargetB() { return s_TargetB; }
+	static vector GetTargetAPos() { return s_vTargetAPos; }
+	static vector GetTargetBPos() { return s_vTargetBPos; }
+	static int GetStartEpoch() { return s_iStartEpoch; }
+	static vector GetCorridorDir() { return s_vCorridorDir; }
+	static vector GetStartPos() { return s_vStartPos; }
+	static bool IsDisrupted() { return s_bDisrupted; }
+	static void SetDisrupted(bool val) { s_bDisrupted = val; }
+
+	//------------------------------------------------------------------------------------------------
+	static void MarkClientReady(int clientIndex)
+	{
+		int now = System.GetTickCount();
+		if (clientIndex == 1)
+			s_iClient1ReadyTick = now;
+		else if (clientIndex == 2)
+			s_iClient2ReadyTick = now;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	static bool IsClient1Ready()
+	{
+		if (s_iClient1ReadyTick <= 0)
+			return false;
+
+		return (System.GetTickCount() - s_iClient1ReadyTick) <= READY_STALE_MS;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	static bool IsClient2Ready()
+	{
+		if (s_iClient2ReadyTick <= 0)
+			return false;
+
+		return (System.GetTickCount() - s_iClient2ReadyTick) <= READY_STALE_MS;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	static bool AreBothReady()
+	{
+		return IsClient1Ready() && IsClient2Ready();
+	}
+
+	//------------------------------------------------------------------------------------------------
+	static void MarkClientEnded(int clientIndex)
+	{
+		if (clientIndex == 1)
+		{
+			s_iClient1ReadyTick = 0;
+			s_bClient1Staged = false;
+		}
+		else if (clientIndex == 2)
+		{
+			s_iClient2ReadyTick = 0;
+		}
+	}
 }
 
 //------------------------------------------------------------------------------------------------
@@ -136,7 +263,7 @@ class BGONE_GuidanceBotHelper
 				cam.GetWorldTransform(camMat);
 				if (camMat[2].LengthSq() > 0.0001)
 				{
-					curPitch = camMat[2].VectorToAngles()[1];
+					curPitch = Math.MapAngle(camMat[2].VectorToAngles()[1]);
 					gotCamPitch = true;
 				}
 			}
@@ -218,7 +345,11 @@ class BGONE_GuidanceBotHelper
 //! Queries server for staged target positions, RplIds, corridor direction, and initial launch epoch.
 class BGONE_BotBeat_FetchGuidanceTargets : BGONE_BotBeat
 {
+	protected static const int RETRY_MS = 200;
+
 	protected int m_iSeq;
+	protected int m_iLastQueryMs;
+	protected string m_sLastDetail;
 
 	//------------------------------------------------------------------------------------------------
 	void BGONE_BotBeat_FetchGuidanceTargets(string beatName, int timeoutMs)
@@ -232,45 +363,64 @@ class BGONE_BotBeat_FetchGuidanceTargets : BGONE_BotBeat
 	override void OnStart(BGONE_BotRun run)
 	{
 		BGONE_GuidanceBotContext.Reset();
+		m_iLastQueryMs = -1000;
+		m_sLastDetail = "no query";
 		m_iSeq = run.Query(BGONE_GuidanceBotConst.QUERY_GUIDANCE_TARGET_INFO);
 	}
 
 	//------------------------------------------------------------------------------------------------
 	override EBGONE_BotBeatState Tick(BGONE_BotRun run, int elapsedMs)
 	{
-		if (m_iSeq <= 0 || !run.HasAnswer(m_iSeq))
-			return EBGONE_BotBeatState.RUNNING;
-
-		bool ok = run.AnswerOk(m_iSeq);
-		vector targetAPos = run.AnswerValue(m_iSeq);
-		string detail = run.AnswerDetail(m_iSeq);
-		if (!ok)
+		if (m_iSeq > 0)
 		{
-			m_sDetail = string.Format("target info query failed: %1", detail);
-			return EBGONE_BotBeatState.FAIL;
+			if (!run.HasAnswer(m_iSeq))
+				return EBGONE_BotBeatState.RUNNING;
+
+			bool ok = run.AnswerOk(m_iSeq);
+			vector targetAPos = run.AnswerValue(m_iSeq);
+			string detail = run.AnswerDetail(m_iSeq);
+			m_sLastDetail = detail;
+			m_iSeq = 0;
+
+			if (ok)
+			{
+				BGONE_GuidanceBotContext.s_vTargetAPos = targetAPos;
+				BGONE_GuidanceBotContext.s_sTargetARpl = BGONE_FlightBotHelper.ExtractToken(detail, "rplA");
+				BGONE_GuidanceBotContext.s_sTargetBRpl = BGONE_FlightBotHelper.ExtractToken(detail, "rplB");
+				BGONE_GuidanceBotContext.s_iStartEpoch = BGONE_FlightBotHelper.ExtractToken(detail, "epoch").ToInt();
+
+				float bx = BGONE_FlightBotHelper.ExtractToken(detail, "bx").ToFloat();
+				float by = BGONE_FlightBotHelper.ExtractToken(detail, "by").ToFloat();
+				float bz = BGONE_FlightBotHelper.ExtractToken(detail, "bz").ToFloat();
+				BGONE_GuidanceBotContext.s_vTargetBPos = Vector(bx, by, bz);
+
+				float cx = BGONE_FlightBotHelper.ExtractToken(detail, "cx").ToFloat();
+				float cz = BGONE_FlightBotHelper.ExtractToken(detail, "cz").ToFloat();
+				vector cDir = Vector(cx, 0.0, cz);
+				if (cDir.LengthSq() > 0.01)
+					BGONE_GuidanceBotContext.s_vCorridorDir = cDir.Normalized();
+
+				m_sDetail = string.Format(
+					"fetched targets (rplA=%1 rplB=%2 epoch=%3 dir=%4)",
+					BGONE_GuidanceBotContext.s_sTargetARpl, BGONE_GuidanceBotContext.s_sTargetBRpl,
+					BGONE_GuidanceBotContext.s_iStartEpoch, BGONE_GuidanceBotContext.s_vCorridorDir);
+				return EBGONE_BotBeatState.PASS;
+			}
 		}
 
-		BGONE_GuidanceBotContext.s_vTargetAPos = targetAPos;
-		BGONE_GuidanceBotContext.s_sTargetARpl = BGONE_FlightBotHelper.ExtractToken(detail, "rplA");
-		BGONE_GuidanceBotContext.s_sTargetBRpl = BGONE_FlightBotHelper.ExtractToken(detail, "rplB");
-		BGONE_GuidanceBotContext.s_iStartEpoch = BGONE_FlightBotHelper.ExtractToken(detail, "epoch").ToInt();
+		if (elapsedMs - m_iLastQueryMs >= RETRY_MS)
+		{
+			m_iLastQueryMs = elapsedMs;
+			m_iSeq = run.Query(BGONE_GuidanceBotConst.QUERY_GUIDANCE_TARGET_INFO);
+		}
 
-		float bx = BGONE_FlightBotHelper.ExtractToken(detail, "bx").ToFloat();
-		float by = BGONE_FlightBotHelper.ExtractToken(detail, "by").ToFloat();
-		float bz = BGONE_FlightBotHelper.ExtractToken(detail, "bz").ToFloat();
-		BGONE_GuidanceBotContext.s_vTargetBPos = Vector(bx, by, bz);
+		return EBGONE_BotBeatState.RUNNING;
+	}
 
-		float cx = BGONE_FlightBotHelper.ExtractToken(detail, "cx").ToFloat();
-		float cz = BGONE_FlightBotHelper.ExtractToken(detail, "cz").ToFloat();
-		vector cDir = Vector(cx, 0.0, cz);
-		if (cDir.LengthSq() > 0.01)
-			BGONE_GuidanceBotContext.s_vCorridorDir = cDir.Normalized();
-
-		m_sDetail = string.Format(
-			"fetched targets (rplA=%1 rplB=%2 epoch=%3 dir=%4)",
-			BGONE_GuidanceBotContext.s_sTargetARpl, BGONE_GuidanceBotContext.s_sTargetBRpl,
-			BGONE_GuidanceBotContext.s_iStartEpoch, BGONE_GuidanceBotContext.s_vCorridorDir);
-		return EBGONE_BotBeatState.PASS;
+	//------------------------------------------------------------------------------------------------
+	override string TimeoutDetail(BGONE_BotRun run)
+	{
+		return string.Format("fetching staged guidance metadata timed out after %1 ms (last=%2)", m_iTimeoutMs, m_sLastDetail);
 	}
 }
 
@@ -1086,10 +1236,14 @@ class BGONE_BotBeat_PlosTrackPanAndFire : BGONE_BotBeat
 			}
 
 			run.LogTelemetry(string.Format("plos_cli_lock=1 cliYawChg=%1 cliPitchChg=%2", cliYawChg, cliPitchChg));
+
+			// Release lock to freeze tracked angular rates inside the 750ms PLOS grace window
+			// before pulling trigger, preventing ADS/recoil settle from decaying pitchChange.
+			launcher.SetLockInputState(false);
 			m_iPhase = 2;
 		}
 
-		// Phase 2: pull trigger immediately while PLOS target data is hot, confirm server launch.
+		// Phase 2: pull trigger immediately inside the PLOS grace window, confirm server launch.
 		bool muzzleEmpty = false;
 		BaseWeaponComponent wep = BaseWeaponComponent.Cast(launcherEnt.FindComponent(BaseWeaponComponent));
 		if (wep)
@@ -1101,6 +1255,12 @@ class BGONE_BotBeat_PlosTrackPanAndFire : BGONE_BotBeat
 
 		if (!muzzleEmpty)
 		{
+			float endPanSec = PAN_DURATION_MS * 0.001;
+			BGONE_GuidanceBotHelper.DriveCharacterAimAngles(
+				ch, ctrl,
+				m_fBaseYaw + PAN_YAW_RATE_DEG_S * endPanSec,
+				m_fBasePitch + PAN_PITCH_RATE_DEG_S * endPanSec,
+				1.0, yawErr, pitchErr);
 			ctrl.SetWeaponRaised(true);
 			ctrl.SetWeaponADS(true);
 			ctrl.SetWeaponADSInput(true);
@@ -1461,27 +1621,554 @@ class BGONE_BotBeat_SaclosFireSteerAndVerify : BGONE_BotBeat
 }
 
 //------------------------------------------------------------------------------------------------
+//! Synchronizes Client 1 (shooter) and Client 2 (observer) via QUERY_GUIDANCE_SYNC_READY so the
+//! shooter never fires before the observer is safely positioned and aiming downrange.
+class BGONE_BotBeat_GuidanceSyncBarrier : BGONE_BotBeat
+{
+	protected static const int POLL_MS = 250;
+
+	protected int m_iPendingSeq;
+	protected int m_iLastQueryMs;
+	protected string m_sLastDetail;
+
+	//------------------------------------------------------------------------------------------------
+	void BGONE_BotBeat_GuidanceSyncBarrier(string beatName, int timeoutMs)
+	{
+		Setup(beatName, timeoutMs);
+		SetFailSay("Guidance shooter and observer clients failed to synchronize before launch.");
+		MarkSetup();
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override void OnStart(BGONE_BotRun run)
+	{
+		m_iPendingSeq = 0;
+		m_iLastQueryMs = -1000;
+		m_sLastDetail = "no query";
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override EBGONE_BotBeatState Tick(BGONE_BotRun run, int elapsedMs)
+	{
+		if (m_iPendingSeq > 0)
+		{
+			if (!run.HasAnswer(m_iPendingSeq))
+				return EBGONE_BotBeatState.RUNNING;
+
+			bool ok = run.AnswerOk(m_iPendingSeq);
+			m_sLastDetail = run.AnswerDetail(m_iPendingSeq);
+			m_iPendingSeq = 0;
+
+			if (ok)
+			{
+				m_sDetail = string.Format("both guidance clients synchronized in %1 ms (%2)", elapsedMs, m_sLastDetail);
+				return EBGONE_BotBeatState.PASS;
+			}
+		}
+
+		if (elapsedMs - m_iLastQueryMs >= POLL_MS)
+		{
+			m_iLastQueryMs = elapsedMs;
+			m_iPendingSeq = run.Query(BGONE_GuidanceBotConst.QUERY_GUIDANCE_SYNC_READY);
+		}
+
+		return EBGONE_BotBeatState.RUNNING;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override string TimeoutDetail(BGONE_BotRun run)
+	{
+		return string.Format("guidance sync barrier timed out after %1 ms (last=%2)", m_iTimeoutMs, m_sLastDetail);
+	}
+}
+
+//------------------------------------------------------------------------------------------------
+//! Moves Client 2 (observer) 8m perpendicular to the active guidance firing corridor onto solid
+//! ground so the observer is safely clear of the muzzle blast and can watch the flight cleanly.
+class BGONE_BotBeat_GuidanceObserverWalkClear : BGONE_BotBeat
+{
+	protected float m_fTargetDist;
+	protected vector m_vStartOrigin;
+	protected vector m_vWalkDir;
+	protected bool m_bInitialized;
+	protected float m_fLastMoved;
+
+	//------------------------------------------------------------------------------------------------
+	void BGONE_BotBeat_GuidanceObserverWalkClear(string beatName, float distanceM, int timeoutMs)
+	{
+		Setup(beatName, timeoutMs);
+		SetFailSay("Observer failed to walk clear of the guidance firing corridor.");
+		MarkSetup();
+		m_fTargetDist = distanceM;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override void OnStart(BGONE_BotRun run)
+	{
+		m_bInitialized = false;
+		m_fLastMoved = 0.0;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override EBGONE_BotBeatState Tick(BGONE_BotRun run, int elapsedMs)
+	{
+		ChimeraCharacter ch = run.Character();
+		SCR_CharacterControllerComponent ctrl = run.CharacterController();
+		if (!ch || !ctrl)
+		{
+			m_sDetail = "missing observer character or controller";
+			return EBGONE_BotBeatState.FAIL;
+		}
+
+		if (!m_bInitialized)
+		{
+			m_vStartOrigin = ch.GetOrigin();
+			vector rightDir = BGONE_GuidanceBotHelper.RightVectorXZ(BGONE_GuidanceBotContext.s_vCorridorDir);
+			vector leftDir = -rightDir;
+
+			// Prefer Left (-rightDir) if on solid ground, otherwise Right (+rightDir).
+			m_vWalkDir = leftDir;
+			BaseWorld world = GetGame().GetWorld();
+			if (world)
+			{
+				vector probeLeft = m_vStartOrigin + leftDir * (m_fTargetDist + 2.0);
+				float leftY = world.GetSurfaceY(probeLeft[0], probeLeft[2]);
+				if (leftY <= -10.0 || Math.AbsFloat(leftY - m_vStartOrigin[1]) > 10.0)
+					m_vWalkDir = rightDir;
+			}
+
+			m_bInitialized = true;
+		}
+
+		vector delta = ch.GetOrigin() - m_vStartOrigin;
+		delta[1] = 0.0;
+		m_fLastMoved = delta.Length();
+
+		if (m_fLastMoved >= m_fTargetDist)
+		{
+			BGONE_BotInput.Release("CharacterForward");
+			m_sDetail = string.Format("observer moved %1 m clear of firing corridor", m_fLastMoved);
+			return EBGONE_BotBeatState.PASS;
+		}
+
+		float walkYaw = m_vWalkDir.ToYaw();
+		ctrl.SetHeadingAngle(BGONE_BotMath.AngleDelta(0.0, walkYaw) * Math.DEG2RAD, true);
+		BGONE_BotInput.Hold("CharacterForward", 1.0);
+		return EBGONE_BotBeatState.RUNNING;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override string TimeoutDetail(BGONE_BotRun run)
+	{
+		BGONE_BotInput.Release("CharacterForward");
+		return string.Format("observer walk clear timed out after %1 ms (moved=%2 m < %3 m)", m_iTimeoutMs, m_fLastMoved, m_fTargetDist);
+	}
+}
+
+//------------------------------------------------------------------------------------------------
+//! Aims Client 2 (observer) down the guidance firing corridor so the camera and proxy replication
+//! track the missile loft, curve, steering, and detonation cleanly.
+class BGONE_BotBeat_GuidanceObserverAim : BGONE_BotBeat
+{
+	protected static const int STABLE_MS = 250;
+
+	protected float m_fLastYawErr;
+	protected float m_fLastPitchErr;
+	protected int m_iOnTargetSinceMs;
+
+	//------------------------------------------------------------------------------------------------
+	void BGONE_BotBeat_GuidanceObserverAim(string beatName, int timeoutMs)
+	{
+		Setup(beatName, timeoutMs);
+		SetFailSay("Observer failed to aim down the guidance firing corridor.");
+		MarkSetup();
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override void OnStart(BGONE_BotRun run)
+	{
+		m_fLastYawErr = 999.0;
+		m_fLastPitchErr = 999.0;
+		m_iOnTargetSinceMs = -1;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override EBGONE_BotBeatState Tick(BGONE_BotRun run, int elapsedMs)
+	{
+		ChimeraCharacter ch = run.Character();
+		SCR_CharacterControllerComponent ctrl = run.CharacterController();
+		if (!ch || !ctrl)
+		{
+			m_sDetail = "missing observer character or controller";
+			return EBGONE_BotBeatState.FAIL;
+		}
+
+		float desiredYaw = BGONE_GuidanceBotContext.s_vCorridorDir.ToYaw();
+		BGONE_GuidanceBotHelper.DriveCharacterAimAngles(ch, ctrl, desiredYaw, 8.0, 2.0, m_fLastYawErr, m_fLastPitchErr);
+
+		if (Math.AbsFloat(m_fLastYawErr) <= 8.0 && Math.AbsFloat(m_fLastPitchErr) <= 8.0)
+		{
+			if (m_iOnTargetSinceMs < 0)
+				m_iOnTargetSinceMs = elapsedMs;
+
+			if (elapsedMs - m_iOnTargetSinceMs >= STABLE_MS)
+			{
+				BGONE_BotInput.Release("CharacterAimUp");
+				BGONE_BotInput.Release("CharacterAimDown");
+				m_sDetail = string.Format("observer aimed down corridor (yawErr=%1 pitchErr=%2)", m_fLastYawErr, m_fLastPitchErr);
+				return EBGONE_BotBeatState.PASS;
+			}
+		}
+		else
+		{
+			m_iOnTargetSinceMs = -1;
+		}
+
+		return EBGONE_BotBeatState.RUNNING;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override string TimeoutDetail(BGONE_BotRun run)
+	{
+		BGONE_BotInput.Release("CharacterAimUp");
+		BGONE_BotInput.Release("CharacterAimDown");
+		return string.Format("observer aim timed out (yawErr=%1 pitchErr=%2)", m_fLastYawErr, m_fLastPitchErr);
+	}
+}
+
+//------------------------------------------------------------------------------------------------
+//! Observer-side (Client 2) proxy replication, guided trajectory, and detonation verification beat
+//! shared across all 5 guidance scenarios.
+class BGONE_BotBeat_VerifyGuidanceObserverProxy : BGONE_BotBeat
+{
+	protected static const int POLL_MS = 150;
+
+	protected string m_sScenario;
+	protected int m_iPendingSeq;
+	protected int m_iLastQueryMs;
+	protected string m_sLastDetail;
+
+	protected string m_sServerRpl;
+	protected bool m_bMatchedRpl;
+	protected int m_iPeakCliSyncCount;
+	protected int m_iPeakCliProxyTicks;
+	protected float m_fBestSyncErr;
+	protected bool m_bObservedConvergedSync;
+	protected int m_iLastCliSnaps;
+	protected float m_fProxyMaxAlt;
+	protected float m_fProxyPeakLat;
+	protected bool m_bHasServerLaunchRef;
+	protected vector m_vServerLaunchOrigin;
+	protected vector m_vServerLaunchFwd;
+
+	//------------------------------------------------------------------------------------------------
+	void BGONE_BotBeat_VerifyGuidanceObserverProxy(string beatName, string scenarioName, int timeoutMs)
+	{
+		Setup(beatName, timeoutMs);
+		SetFailSay("Observer client did not observe replicated guided missile flight and detonation.");
+		m_sScenario = scenarioName;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override void OnStart(BGONE_BotRun run)
+	{
+		m_iPendingSeq = 0;
+		m_iLastQueryMs = -1000;
+		m_sLastDetail = "no query";
+		m_sServerRpl = "";
+		m_bMatchedRpl = false;
+		m_iPeakCliSyncCount = 0;
+		m_iPeakCliProxyTicks = 0;
+		m_fBestSyncErr = 9999.0;
+		m_bObservedConvergedSync = false;
+		m_iLastCliSnaps = 0;
+		m_fProxyMaxAlt = -9999.0;
+		m_fProxyPeakLat = -9999.0;
+		m_bHasServerLaunchRef = false;
+		m_vServerLaunchOrigin = vector.Zero;
+		m_vServerLaunchFwd = BGONE_GuidanceBotContext.s_vCorridorDir;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override EBGONE_BotBeatState Tick(BGONE_BotRun run, int elapsedMs)
+	{
+		// Sample local proxy missile telemetry every frame so peak altitude/lateral curve and
+		// converged dead-reckoning error are captured before cleanup on detonation.
+		RplId cliRpl = BGONE_GuidedMissileComponent.GetLastMissileRplId();
+		string cliRplStr = "";
+		if (cliRpl.IsValid())
+			cliRplStr = cliRpl.AsString();
+
+		if (!m_sServerRpl.IsEmpty() && cliRplStr == m_sServerRpl)
+			m_bMatchedRpl = true;
+
+		if (m_bMatchedRpl)
+		{
+			int syncCount = BGONE_GuidedMissileComponent.GetLastTrackedSyncReceiveCount();
+			int ticks = BGONE_GuidedMissileComponent.GetLastTrackedProxyFrameTicks();
+			float err = BGONE_GuidedMissileComponent.GetLastTrackedSyncErrorMeters();
+			int snaps = BGONE_GuidedMissileComponent.GetLastTrackedSnapCorrectionCount();
+			vector proxyOrigin = BGONE_GuidedMissileComponent.GetLastTrackedOrigin();
+
+			if (syncCount > m_iPeakCliSyncCount)
+				m_iPeakCliSyncCount = syncCount;
+			if (ticks > m_iPeakCliProxyTicks)
+				m_iPeakCliProxyTicks = ticks;
+			m_iLastCliSnaps = snaps;
+
+			if (syncCount >= 2 && err < m_fBestSyncErr)
+			{
+				m_fBestSyncErr = err;
+				if (err < BGONE_GuidanceBotConst.MAX_OBSERVER_CONVERGED_ERR_M)
+					m_bObservedConvergedSync = true;
+			}
+
+			if (proxyOrigin != vector.Zero)
+			{
+				if (proxyOrigin[1] > m_fProxyMaxAlt)
+					m_fProxyMaxAlt = proxyOrigin[1];
+
+				if (m_bHasServerLaunchRef)
+				{
+					vector rightVec = BGONE_GuidanceBotHelper.RightVectorXZ(m_vServerLaunchFwd);
+					vector disp = proxyOrigin - m_vServerLaunchOrigin;
+					disp[1] = 0.0;
+					float lat = vector.Dot(disp, rightVec);
+					if (lat > m_fProxyPeakLat)
+						m_fProxyPeakLat = lat;
+				}
+			}
+		}
+
+		if (m_iPendingSeq > 0)
+		{
+			if (!run.HasAnswer(m_iPendingSeq))
+				return EBGONE_BotBeatState.RUNNING;
+
+			bool srvOk = run.AnswerOk(m_iPendingSeq);
+			vector srvVal = run.AnswerValue(m_iPendingSeq);
+			m_sLastDetail = run.AnswerDetail(m_iPendingSeq);
+			m_iPendingSeq = 0;
+
+			if (srvOk)
+			{
+				string rplTok = BGONE_FlightBotHelper.ExtractToken(m_sLastDetail, "rpl");
+				if (!rplTok.IsEmpty() && rplTok != "invalid")
+					m_sServerRpl = rplTok;
+
+				if (!m_bHasServerLaunchRef)
+				{
+					float lox = BGONE_FlightBotHelper.ExtractToken(m_sLastDetail, "lox").ToFloat();
+					float loz = BGONE_FlightBotHelper.ExtractToken(m_sLastDetail, "loz").ToFloat();
+					float lAlt = BGONE_FlightBotHelper.ExtractToken(m_sLastDetail, "lAlt").ToFloat();
+					float lfx = BGONE_FlightBotHelper.ExtractToken(m_sLastDetail, "lfx").ToFloat();
+					float lfz = BGONE_FlightBotHelper.ExtractToken(m_sLastDetail, "lfz").ToFloat();
+					m_vServerLaunchOrigin = Vector(lox, lAlt, loz);
+					vector lf = Vector(lfx, 0.0, lfz);
+					if (lf.LengthSq() > 0.001)
+						m_vServerLaunchFwd = lf.Normalized();
+					m_bHasServerLaunchRef = true;
+				}
+
+				if (!m_sServerRpl.IsEmpty() && cliRplStr == m_sServerRpl)
+					m_bMatchedRpl = true;
+
+				if (m_bMatchedRpl)
+				{
+					int sSyncs = BGONE_GuidedMissileComponent.GetLastTrackedSyncReceiveCount();
+					int sTicks = BGONE_GuidedMissileComponent.GetLastTrackedProxyFrameTicks();
+					float sErr = BGONE_GuidedMissileComponent.GetLastTrackedSyncErrorMeters();
+					int sSnaps = BGONE_GuidedMissileComponent.GetLastTrackedSnapCorrectionCount();
+					vector sOrigin = BGONE_GuidedMissileComponent.GetLastTrackedOrigin();
+
+					if (sSyncs > m_iPeakCliSyncCount)
+						m_iPeakCliSyncCount = sSyncs;
+					if (sTicks > m_iPeakCliProxyTicks)
+						m_iPeakCliProxyTicks = sTicks;
+					m_iLastCliSnaps = sSnaps;
+
+					if (sSyncs >= 2 && sErr < m_fBestSyncErr)
+					{
+						m_fBestSyncErr = sErr;
+						if (sErr < BGONE_GuidanceBotConst.MAX_OBSERVER_CONVERGED_ERR_M)
+							m_bObservedConvergedSync = true;
+					}
+
+					if (sOrigin != vector.Zero)
+					{
+						if (sOrigin[1] > m_fProxyMaxAlt)
+							m_fProxyMaxAlt = sOrigin[1];
+
+						if (m_bHasServerLaunchRef)
+						{
+							vector sRight = BGONE_GuidanceBotHelper.RightVectorXZ(m_vServerLaunchFwd);
+							vector sDisp = sOrigin - m_vServerLaunchOrigin;
+							sDisp[1] = 0.0;
+							float sLat = vector.Dot(sDisp, sRight);
+							if (sLat > m_fProxyPeakLat)
+								m_fProxyPeakLat = sLat;
+						}
+					}
+				}
+
+				int srvDet = Math.Round(srvVal[2]);
+				if (srvDet >= 1)
+				{
+					bool cliDetonated = BGONE_GuidedMissileComponent.IsLastTrackedDetonated();
+					BGONE_GuidedMissileComponent liveMissile = BGONE_GuidedMissileComponent.GetLastMissile();
+					bool clientClean = cliDetonated || (liveMissile == null);
+
+					// Give proxy up to a short settle window if explosion RPC is still in flight.
+					if (!clientClean && elapsedMs < m_iTimeoutMs - 2000)
+						return EBGONE_BotBeatState.RUNNING;
+
+					if (!m_bMatchedRpl)
+					{
+						m_sDetail = string.Format("observer never saw matching missile RplId (srv=%1 cli=%2)", m_sServerRpl, cliRplStr);
+						return EBGONE_BotBeatState.FAIL;
+					}
+
+					if (m_iPeakCliSyncCount < BGONE_GuidanceBotConst.MIN_OBSERVER_SYNC_COUNT)
+					{
+						m_sDetail = string.Format("observer received too few proxy syncs (%1 < %2)", m_iPeakCliSyncCount, BGONE_GuidanceBotConst.MIN_OBSERVER_SYNC_COUNT);
+						return EBGONE_BotBeatState.FAIL;
+					}
+
+					if (m_iPeakCliProxyTicks < BGONE_GuidanceBotConst.MIN_OBSERVER_FRAME_TICKS)
+					{
+						m_sDetail = string.Format("observer proxy EOnFrame ticks too low (%1 < %2)", m_iPeakCliProxyTicks, BGONE_GuidanceBotConst.MIN_OBSERVER_FRAME_TICKS);
+						return EBGONE_BotBeatState.FAIL;
+					}
+
+					if (!m_bObservedConvergedSync || m_iLastCliSnaps > BGONE_GuidanceBotConst.MAX_OBSERVER_SNAPS)
+					{
+						m_sDetail = string.Format("observer proxy sync did not converge cleanly (bestErr=%1 snaps=%2 syncs=%3)", m_fBestSyncErr, m_iLastCliSnaps, m_iPeakCliSyncCount);
+						return EBGONE_BotBeatState.FAIL;
+					}
+
+					if (!clientClean)
+					{
+						m_sDetail = string.Format("observer proxy missile did not detonate/clean up (cliDet=%1 live=%2)", cliDetonated, liveMissile != null);
+						return EBGONE_BotBeatState.FAIL;
+					}
+
+					// Scenario-specific observer trajectory assertions.
+					float launchAlt = BGONE_FlightBotHelper.ExtractToken(m_sLastDetail, "lAlt").ToFloat();
+					int sdFlag = BGONE_FlightBotHelper.ExtractToken(m_sLastDetail, "sd").ToInt();
+					string tgtRpl = BGONE_FlightBotHelper.ExtractToken(m_sLastDetail, "tgtRpl");
+
+					if (m_sScenario == BGONE_GuidanceBotConst.SCENARIO_VIS_TOP_STATIC)
+					{
+						float proxyClimb = m_fProxyMaxAlt - Math.Max(launchAlt, BGONE_GuidanceBotContext.s_vTargetAPos[1]);
+						if (proxyClimb < 8.0 || sdFlag != 0)
+						{
+							m_sDetail = string.Format("observer did not see TOP loft climb (proxyClimb=%1m sd=%2)", proxyClimb, sdFlag);
+							return EBGONE_BotBeatState.FAIL;
+						}
+					}
+					else if (m_sScenario == BGONE_GuidanceBotConst.SCENARIO_VIS_TARGET_SWITCH)
+					{
+						if (tgtRpl != BGONE_GuidanceBotContext.s_sTargetBRpl || tgtRpl == BGONE_GuidanceBotContext.s_sTargetARpl)
+						{
+							m_sDetail = string.Format("observer saw wrong switched target RplId (got=%1 expectedB=%2)", tgtRpl, BGONE_GuidanceBotContext.s_sTargetBRpl);
+							return EBGONE_BotBeatState.FAIL;
+						}
+					}
+					else if (m_sScenario == BGONE_GuidanceBotConst.SCENARIO_VIS_OCCLUSION_SD)
+					{
+						if (sdFlag != 1)
+						{
+							m_sDetail = string.Format("observer did not see VIS self-destruct flag (sd=%1)", sdFlag);
+							return EBGONE_BotBeatState.FAIL;
+						}
+					}
+					else if (m_sScenario == BGONE_GuidanceBotConst.SCENARIO_PLOS_MOVING)
+					{
+						if (m_fProxyPeakLat < 8.0)
+						{
+							m_sDetail = string.Format("observer did not see PLOS rightward proxy curve (proxyLat=%1m < 8m)", m_fProxyPeakLat);
+							return EBGONE_BotBeatState.FAIL;
+						}
+					}
+					else if (m_sScenario == BGONE_GuidanceBotConst.SCENARIO_SACLOS_STEER)
+					{
+						if (m_fProxyPeakLat < 10.0)
+						{
+							m_sDetail = string.Format("observer did not see SACLOS rightward proxy steering (proxyLat=%1m < 10m)", m_fProxyPeakLat);
+							return EBGONE_BotBeatState.FAIL;
+						}
+					}
+
+					run.LogTelemetry(string.Format(
+						"role=observer scenario=%1 rpl=%2 syncs=%3 ticks=%4 bestErr=%5 snaps=%6",
+						m_sScenario, m_sServerRpl, m_iPeakCliSyncCount, m_iPeakCliProxyTicks, m_fBestSyncErr, m_iLastCliSnaps));
+					run.LogTelemetry(string.Format(
+						"role=observer proxyMaxAlt=%1 proxyLat=%2 srvDet=%3 cliDet=%4",
+						m_fProxyMaxAlt, m_fProxyPeakLat, srvDet, cliDetonated));
+
+					m_sDetail = string.Format(
+						"observer verified proxy missile %1 (syncs=%2 err=%3m maxAlt=%4m lat=%5m det=%6)",
+						m_sServerRpl, m_iPeakCliSyncCount, m_fBestSyncErr, m_fProxyMaxAlt, m_fProxyPeakLat, srvDet);
+					return EBGONE_BotBeatState.PASS;
+				}
+			}
+		}
+
+		if (elapsedMs - m_iLastQueryMs >= POLL_MS)
+		{
+			m_iLastQueryMs = elapsedMs;
+			m_iPendingSeq = run.Query(BGONE_GuidanceBotConst.QUERY_GUIDANCE_MISSILE_STATE);
+		}
+
+		return EBGONE_BotBeatState.RUNNING;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override string TimeoutDetail(BGONE_BotRun run)
+	{
+		return string.Format(
+			"observer proxy verification timed out (rpl=%1 matched=%2 syncs=%3 ticks=%4 err=%5 last=%6)",
+			m_sServerRpl, m_bMatchedRpl, m_iPeakCliSyncCount, m_iPeakCliProxyTicks, m_fBestSyncErr, m_sLastDetail);
+	}
+}
+
+//------------------------------------------------------------------------------------------------
 modded class SCR_PlayerController : PlayerController
 {
-	protected IEntity m_BGONE_GuidanceTargetA;
-	protected IEntity m_BGONE_GuidanceTargetB;
-	protected int m_iBGONE_GuidanceStartEpoch;
-	protected vector m_vBGONE_GuidanceTargetAPos;
-	protected vector m_vBGONE_GuidanceTargetBPos;
-	protected bool m_bBGONE_GuidanceDisrupted;
-	protected vector m_vBGONE_GuidanceCorridorDir;
+	//------------------------------------------------------------------------------------------------
+	protected BGONE_BotRun BGONE_BuildGuidanceObserverRun(string scenarioName)
+	{
+		BGONE_BotRun obs = new BGONE_BotRun(scenarioName);
+		obs.m_sTitle = string.Format("BGONE Guidance Observer Proxy Verification (%1)", scenarioName);
+		obs.m_sSummary = "Verified remote observer received throttled proxy syncs, observed the guided missile trajectory, and saw clean detonation.";
+		obs.Add(new BGONE_BotBeat_WaitDeployed("wait_deployed", 30000));
+		obs.Add(new BGONE_BotBeat_FetchGuidanceTargets("fetch_targets", 30000));
+		obs.Add(new BGONE_BotBeat_GuidanceObserverWalkClear("walk_clear_of_muzzle", 8.0, 15000));
+		obs.Add(new BGONE_BotBeat_GuidanceObserverAim("observer_aim_corridor", 12000));
+		obs.Add(new BGONE_BotBeat_GuidanceSyncBarrier("signal_observer_ready", 90000));
+		obs.Add(new BGONE_BotBeat_VerifyGuidanceObserverProxy("verify_observer_guidance_proxy", scenarioName, 60000));
+		return obs;
+	}
 
 	//------------------------------------------------------------------------------------------------
 	override protected BGONE_BotRun BGONE_BotBuildScenario(string scenarioName)
 	{
+		if (!BGONE_GuidanceBotHelper.IsGuidanceScenario(scenarioName))
+			return super.BGONE_BotBuildScenario(scenarioName);
+
+		int clientIdx = BGONE_BotClientIndex();
+		if (clientIdx != 1)
+			return BGONE_BuildGuidanceObserverRun(scenarioName);
+
 		if (scenarioName == BGONE_GuidanceBotConst.SCENARIO_VIS_TOP_STATIC)
 		{
 			BGONE_BotRun run = new BGONE_BotRun(scenarioName);
-			run.m_sTitle = "VIS Top Attack Static Target Loft, Terminal Dive & Impact";
+			run.m_sTitle = "VIS Top Attack Static Target Loft, Terminal Dive & Impact (Shooter)";
 			run.m_sSummary = "Verified VIS lock on BTR70, Top Attack loft (+12m climb, stage 3 dive without FOV self-destruct), and target impact.";
 			run.Add(new BGONE_BotBeat_WaitDeployed("wait_deployed", 30000));
 			run.Add(new BGONE_BotBeat_FetchGuidanceTargets("fetch_targets", 10000));
 			run.Add(new BGONE_BotBeat_PickupAndEquipLauncher("pickup_and_equip_vis", 20000));
+			run.Add(new BGONE_BotBeat_GuidanceSyncBarrier("wait_observer_ready", 90000));
 			run.Add(new BGONE_BotBeat_SelectAttackProfile("select_top_attack", 1, 10000));
 			run.Add(new BGONE_BotBeat_AimAndLockVisTarget("aim_and_lock_btr", false, 20000));
 			run.Add(new BGONE_BotBeat_FireGuidedLauncher("fire_vis_top", false, 15000));
@@ -1492,11 +2179,12 @@ modded class SCR_PlayerController : PlayerController
 		if (scenarioName == BGONE_GuidanceBotConst.SCENARIO_VIS_TARGET_SWITCH)
 		{
 			BGONE_BotRun run = new BGONE_BotRun(scenarioName);
-			run.m_sTitle = "VIS Target Switching Without Clobbering or Stale RplId";
+			run.m_sTitle = "VIS Target Switching Without Clobbering or Stale RplId (Shooter)";
 			run.m_sSummary = "Locked Target A, panned to Target B within 0.3 rad while holding lock, verified clean switch and server missile Target B RplId.";
 			run.Add(new BGONE_BotBeat_WaitDeployed("wait_deployed", 30000));
 			run.Add(new BGONE_BotBeat_FetchGuidanceTargets("fetch_targets", 10000));
 			run.Add(new BGONE_BotBeat_PickupAndEquipLauncher("pickup_and_equip_vis", 20000));
+			run.Add(new BGONE_BotBeat_GuidanceSyncBarrier("wait_observer_ready", 90000));
 			run.Add(new BGONE_BotBeat_VisTargetSwitchLock("lock_a_then_switch_b", 30000));
 			run.Add(new BGONE_BotBeat_FireGuidedLauncher("fire_vis_switched", false, 15000));
 			run.Add(new BGONE_BotBeat_VerifyVisSwitchLaunch("verify_vis_switch_launch", 30000));
@@ -1506,11 +2194,12 @@ modded class SCR_PlayerController : PlayerController
 		if (scenarioName == BGONE_GuidanceBotConst.SCENARIO_VIS_OCCLUSION_SD)
 		{
 			BGONE_BotRun run = new BGONE_BotRun(scenarioName);
-			run.m_sTitle = "VIS Seeker Loss-of-Track Self-Destruct Timer";
+			run.m_sTitle = "VIS Seeker Loss-of-Track Self-Destruct Timer (Shooter)";
 			run.m_sSummary = "Locked & fired VIS missile, displaced target >120 deg behind missile mid-flight, and verified m_fNoTargetDestructTime self-destruct.";
 			run.Add(new BGONE_BotBeat_WaitDeployed("wait_deployed", 30000));
 			run.Add(new BGONE_BotBeat_FetchGuidanceTargets("fetch_targets", 10000));
 			run.Add(new BGONE_BotBeat_PickupAndEquipLauncher("pickup_and_equip_vis", 20000));
+			run.Add(new BGONE_BotBeat_GuidanceSyncBarrier("wait_observer_ready", 90000));
 			run.Add(new BGONE_BotBeat_SelectAttackProfile("select_top_for_airspace", 1, 10000));
 			run.Add(new BGONE_BotBeat_AimAndLockVisTarget("aim_and_lock_btr", false, 20000));
 			run.Add(new BGONE_BotBeat_FireGuidedLauncher("fire_vis_occlusion", false, 15000));
@@ -1521,11 +2210,12 @@ modded class SCR_PlayerController : PlayerController
 		if (scenarioName == BGONE_GuidanceBotConst.SCENARIO_PLOS_MOVING)
 		{
 			BGONE_BotRun run = new BGONE_BotRun(scenarioName);
-			run.m_sTitle = "PLOS Angular-Rate Lead Prediction (Yaw + Pitch Degrees/Sec)";
+			run.m_sTitle = "PLOS Angular-Rate Lead Prediction (Yaw + Pitch Degrees/Sec) (Shooter)";
 			run.m_sSummary = "Tracked steady lateral+vertical pan with PLOS launcher, verified degrees/sec rates on client+server, >10m lead curve, and detonation.";
 			run.Add(new BGONE_BotBeat_WaitDeployed("wait_deployed", 30000));
 			run.Add(new BGONE_BotBeat_FetchGuidanceTargets("fetch_targets", 10000));
 			run.Add(new BGONE_BotBeat_PickupAndEquipLauncher("pickup_and_equip_plos", 20000));
+			run.Add(new BGONE_BotBeat_GuidanceSyncBarrier("wait_observer_ready", 90000));
 			run.Add(new BGONE_BotBeat_PlosTrackPanAndFire("plos_track_pan_and_fire", 20000));
 			run.Add(new BGONE_BotBeat_VerifyPlosFlight("verify_plos_flight", 25000));
 			return run;
@@ -1534,11 +2224,12 @@ modded class SCR_PlayerController : PlayerController
 		if (scenarioName == BGONE_GuidanceBotConst.SCENARIO_SACLOS_STEER)
 		{
 			BGONE_BotRun run = new BGONE_BotRun(scenarioName);
-			run.m_sTitle = "SACLOS Beam-Riding Rightward Steering & Terrain Impact";
+			run.m_sTitle = "SACLOS Beam-Riding Rightward Steering & Terrain Impact (Shooter)";
 			run.m_sSummary = "Fired SACLOS missile, steered +15 deg right, verified >15m rightward deflection (no X inversion, retained owner aim), and detonated.";
 			run.Add(new BGONE_BotBeat_WaitDeployed("wait_deployed", 30000));
 			run.Add(new BGONE_BotBeat_FetchGuidanceTargets("fetch_targets", 10000));
 			run.Add(new BGONE_BotBeat_PickupAndEquipLauncher("pickup_and_equip_saclos", 20000));
+			run.Add(new BGONE_BotBeat_GuidanceSyncBarrier("wait_observer_ready", 90000));
 			run.Add(new BGONE_BotBeat_SaclosFireSteerAndVerify("saclos_fire_steer_verify", 35000));
 			return run;
 		}
@@ -1547,20 +2238,49 @@ modded class SCR_PlayerController : PlayerController
 	}
 
 	//------------------------------------------------------------------------------------------------
-	protected bool BGONE_GuidanceProbeCorridor(BaseWorld world, IEntity character, vector dirXZ, float checkDist)
+	protected bool BGONE_GuidanceIsSolidFlat(BaseWorld world, vector origin, vector pos)
+	{
+		float surfY = world.GetSurfaceY(pos[0], pos[2]);
+		if (surfY <= -10.0)
+			return false;
+
+		if (Math.AbsFloat(surfY - origin[1]) > 15.0)
+			return false;
+
+		return true;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected bool BGONE_GuidanceProbeCorridor(BaseWorld world, IEntity character, vector dirXZ, float checkDist, float lateralMargin)
 	{
 		if (!world || !character)
 			return false;
 
 		vector origin = character.GetOrigin();
-		vector samplePos = origin + dirXZ * checkDist;
-		float surfY = world.GetSurfaceY(samplePos[0], samplePos[2]);
-		if (surfY < origin[1] - 0.5)
-			return false;
+		vector rightDir = BGONE_GuidanceBotHelper.RightVectorXZ(dirXZ);
 
+		// Verify solid flat terrain along the corridor (25%, 50%, 75%, 100%) and lateral margins at target range.
+		float fracs[4] = {0.25, 0.50, 0.75, 1.00};
+		for (int i = 0; i < 4; i++)
+		{
+			vector samplePos = origin + dirXZ * (checkDist * fracs[i]);
+			if (!BGONE_GuidanceIsSolidFlat(world, origin, samplePos))
+				return false;
+		}
+
+		vector endPos = origin + dirXZ * checkDist;
+		if (lateralMargin > 0.1)
+		{
+			if (!BGONE_GuidanceIsSolidFlat(world, origin, endPos - rightDir * lateralMargin))
+				return false;
+			if (!BGONE_GuidanceIsSolidFlat(world, origin, endPos + rightDir * lateralMargin))
+				return false;
+		}
+
+		float surfY = world.GetSurfaceY(endPos[0], endPos[2]);
 		TraceParam tp = new TraceParam();
 		tp.Start = origin + Vector(0.0, 1.6, 0.0);
-		tp.End = Vector(samplePos[0], surfY + 1.6, samplePos[2]);
+		tp.End = Vector(endPos[0], surfY + 1.6, endPos[2]);
 		tp.LayerMask = EPhysicsLayerDefs.Projectile;
 		tp.Flags = TraceFlags.ANY_CONTACT | TraceFlags.WORLD | TraceFlags.ENTS;
 		tp.Exclude = character;
@@ -1570,25 +2290,30 @@ modded class SCR_PlayerController : PlayerController
 	}
 
 	//------------------------------------------------------------------------------------------------
-	protected vector BGONE_GuidanceResolveCorridorDir(BaseWorld world, IEntity character, float checkDist)
+	protected vector BGONE_GuidanceResolveCorridorDir(BaseWorld world, IEntity character, float checkDist, float lateralMargin)
 	{
-		vector westDir = Vector(-1.0, 0.0, 0.0);
-		if (BGONE_GuidanceProbeCorridor(world, character, westDir, checkDist))
-			return westDir;
+		// Prioritize South-East / East-South-East / South-South-East (longest solid flat diagonal from MPTest NW spawn),
+		// then sweep all 15 deg azimuths.
+		float preferredYaws[5] = {135.0, 120.0, 150.0, 90.0, 180.0};
+		for (int i = 0; i < 5; i++)
+		{
+			vector cand = vector.FromYaw(preferredYaws[i]);
+			if (BGONE_GuidanceProbeCorridor(world, character, cand, checkDist, lateralMargin))
+				return cand;
+		}
 
-		vector northDir = Vector(0.0, 0.0, 1.0);
-		if (BGONE_GuidanceProbeCorridor(world, character, northDir, checkDist))
-			return northDir;
+		for (float yaw = 0.0; yaw < 360.0; yaw += 15.0)
+		{
+			vector cand = vector.FromYaw(yaw);
+			if (BGONE_GuidanceProbeCorridor(world, character, cand, checkDist, lateralMargin))
+				return cand;
+		}
 
-		vector southDir = Vector(0.0, 0.0, -1.0);
-		if (BGONE_GuidanceProbeCorridor(world, character, southDir, checkDist))
-			return southDir;
+		// Fallback: shorter distance probe if map is compact.
+		if (checkDist > 180.0)
+			return BGONE_GuidanceResolveCorridorDir(world, character, 180.0, lateralMargin);
 
-		vector eastSouthDir = Vector(0.95, 0.0, -0.31).Normalized();
-		if (BGONE_GuidanceProbeCorridor(world, character, eastSouthDir, checkDist))
-			return eastSouthDir;
-
-		return westDir;
+		return vector.FromYaw(135.0);
 	}
 
 	//------------------------------------------------------------------------------------------------
@@ -1626,17 +2351,19 @@ modded class SCR_PlayerController : PlayerController
 
 		fixtureId = RplId.Invalid();
 		fixturePos = vector.Zero;
-		m_BGONE_GuidanceTargetA = null;
-		m_BGONE_GuidanceTargetB = null;
-		m_vBGONE_GuidanceTargetAPos = vector.Zero;
-		m_vBGONE_GuidanceTargetBPos = vector.Zero;
-		m_bBGONE_GuidanceDisrupted = false;
-		m_iBGONE_GuidanceStartEpoch = BGONE_GuidedMissileComponent.GetLastLaunchEpoch();
 
 		if (!character)
 		{
 			detail = "no character to stage guidance scenario near";
 			return 20;
+		}
+
+		int clientIdx = BGONE_BotClientIndex();
+		if (clientIdx != 1)
+		{
+			fixturePos = character.GetOrigin();
+			detail = string.Format("guidance observer client %1 ready at %2", clientIdx, fixturePos);
+			return 0;
 		}
 
 		BaseWorld world = GetGame().GetWorld();
@@ -1645,6 +2372,8 @@ modded class SCR_PlayerController : PlayerController
 			detail = "no active world for guidance staging";
 			return 21;
 		}
+
+		BGONE_GuidanceBotCoordinator.BeginClient1Staging(scenarioName, character.GetOrigin());
 
 		ResourceName launcherPrefab = BGONE_GuidanceBotConst.PREFAB_LAUNCHER_VIS;
 		if (scenarioName == BGONE_GuidanceBotConst.SCENARIO_PLOS_MOVING)
@@ -1678,113 +2407,166 @@ modded class SCR_PlayerController : PlayerController
 		if (launcherRpl && launcherRpl.Id().IsValid())
 			fixtureId = launcherRpl.Id();
 
-		// Resolve clear solid-terrain firing corridor (prefers West -X; falls back to clear solid quadrant).
-		float probeDist = 280.0;
-		m_vBGONE_GuidanceCorridorDir = BGONE_GuidanceResolveCorridorDir(world, character, probeDist);
-		float broadsideYaw = m_vBGONE_GuidanceCorridorDir.ToYaw() + 90.0;
-		vector rightDir = BGONE_GuidanceBotHelper.RightVectorXZ(m_vBGONE_GuidanceCorridorDir);
+		// Resolve clear solid-terrain firing corridor inside map bounds.
+		float probeDist = 240.0;
+		float lateralMargin = 10.0;
+		if (scenarioName == BGONE_GuidanceBotConst.SCENARIO_VIS_TARGET_SWITCH)
+		{
+			probeDist = 200.0;
+			lateralMargin = 28.0;
+		}
+		else if (scenarioName == BGONE_GuidanceBotConst.SCENARIO_VIS_OCCLUSION_SD)
+		{
+			probeDist = 260.0;
+		}
+
+		vector corridorDir = BGONE_GuidanceResolveCorridorDir(world, character, probeDist, lateralMargin);
+		float broadsideYaw = corridorDir.ToYaw() + 90.0;
+		vector rightDir = BGONE_GuidanceBotHelper.RightVectorXZ(corridorDir);
 		vector shooterOrigin = character.GetOrigin();
+
+		IEntity targetA = null;
+		IEntity targetB = null;
 
 		if (scenarioName == BGONE_GuidanceBotConst.SCENARIO_VIS_TOP_STATIC)
 		{
-			vector posA = shooterOrigin + m_vBGONE_GuidanceCorridorDir * 220.0;
+			vector posA = shooterOrigin + corridorDir * 220.0;
 			posA[1] = world.GetSurfaceY(posA[0], posA[2]) + 0.2;
-			m_BGONE_GuidanceTargetA = BGONE_GuidanceSpawnEntity(world, scenarioName, BGONE_GuidanceBotConst.PREFAB_TARGET_BTR70, posA, broadsideYaw);
-			if (!m_BGONE_GuidanceTargetA)
+			targetA = BGONE_GuidanceSpawnEntity(world, scenarioName, BGONE_GuidanceBotConst.PREFAB_TARGET_BTR70, posA, broadsideYaw);
+			if (!targetA)
 			{
 				detail = "failed to spawn BTR70 Target A for vis_top_static";
 				return 23;
 			}
-			m_vBGONE_GuidanceTargetAPos = m_BGONE_GuidanceTargetA.GetOrigin();
 		}
 		else if (scenarioName == BGONE_GuidanceBotConst.SCENARIO_VIS_TARGET_SWITCH)
 		{
 			// 200m forward, +/-25m lateral (~14.2 deg separation -> both inside 0.3 rad / 17.2 deg seeker cone).
-			vector posA = shooterOrigin + m_vBGONE_GuidanceCorridorDir * 200.0 - rightDir * 25.0;
+			vector posA = shooterOrigin + corridorDir * 200.0 - rightDir * 25.0;
 			posA[1] = world.GetSurfaceY(posA[0], posA[2]) + 0.2;
-			vector posB = shooterOrigin + m_vBGONE_GuidanceCorridorDir * 200.0 + rightDir * 25.0;
+			vector posB = shooterOrigin + corridorDir * 200.0 + rightDir * 25.0;
 			posB[1] = world.GetSurfaceY(posB[0], posB[2]) + 0.2;
 
-			m_BGONE_GuidanceTargetA = BGONE_GuidanceSpawnEntity(world, scenarioName, BGONE_GuidanceBotConst.PREFAB_TARGET_BTR70, posA, broadsideYaw);
-			m_BGONE_GuidanceTargetB = BGONE_GuidanceSpawnEntity(world, scenarioName, BGONE_GuidanceBotConst.PREFAB_TARGET_BTR70, posB, broadsideYaw);
-			if (!m_BGONE_GuidanceTargetA || !m_BGONE_GuidanceTargetB)
+			targetA = BGONE_GuidanceSpawnEntity(world, scenarioName, BGONE_GuidanceBotConst.PREFAB_TARGET_BTR70, posA, broadsideYaw);
+			targetB = BGONE_GuidanceSpawnEntity(world, scenarioName, BGONE_GuidanceBotConst.PREFAB_TARGET_BTR70, posB, broadsideYaw);
+			if (!targetA || !targetB)
 			{
 				detail = "failed to spawn Target A/B BTR70s for vis_target_switch";
 				return 24;
 			}
-			m_vBGONE_GuidanceTargetAPos = m_BGONE_GuidanceTargetA.GetOrigin();
-			m_vBGONE_GuidanceTargetBPos = m_BGONE_GuidanceTargetB.GetOrigin();
 		}
 		else if (scenarioName == BGONE_GuidanceBotConst.SCENARIO_VIS_OCCLUSION_SD)
 		{
-			vector posA = shooterOrigin + m_vBGONE_GuidanceCorridorDir * 280.0;
+			vector posA = shooterOrigin + corridorDir * 255.0;
 			posA[1] = world.GetSurfaceY(posA[0], posA[2]) + 0.2;
-			m_BGONE_GuidanceTargetA = BGONE_GuidanceSpawnEntity(world, scenarioName, BGONE_GuidanceBotConst.PREFAB_TARGET_BTR70, posA, broadsideYaw);
-			if (!m_BGONE_GuidanceTargetA)
+			targetA = BGONE_GuidanceSpawnEntity(world, scenarioName, BGONE_GuidanceBotConst.PREFAB_TARGET_BTR70, posA, broadsideYaw);
+			if (!targetA)
 			{
 				detail = "failed to spawn BTR70 Target A for vis_occlusion_sd";
 				return 25;
 			}
-			m_vBGONE_GuidanceTargetAPos = m_BGONE_GuidanceTargetA.GetOrigin();
 		}
 
-		detail = string.Format("staged %1 dir=%2 tgtA=%3", scenarioName, m_vBGONE_GuidanceCorridorDir, m_vBGONE_GuidanceTargetAPos);
+		BGONE_GuidanceBotCoordinator.FinishClient1Staging(corridorDir, targetA, targetB);
+
+		detail = string.Format(
+			"staged %1 dir=%2 tgtA=%3",
+			scenarioName, corridorDir, BGONE_GuidanceBotCoordinator.GetTargetAPos());
 		return 0;
 	}
 
 	//------------------------------------------------------------------------------------------------
 	override protected bool BGONE_BotAnswerQuery(int queryId, out int ok, out vector val, out string detail)
 	{
+		if (queryId == BGONE_GuidanceBotConst.QUERY_GUIDANCE_SYNC_READY)
+		{
+			int clientIdx = BGONE_BotClientIndex();
+			BGONE_GuidanceBotCoordinator.MarkClientReady(clientIdx);
+
+			float c1 = 0.0;
+			if (BGONE_GuidanceBotCoordinator.IsClient1Ready())
+				c1 = 1.0;
+
+			float c2 = 0.0;
+			if (BGONE_GuidanceBotCoordinator.IsClient2Ready())
+				c2 = 1.0;
+
+			if (BGONE_GuidanceBotCoordinator.AreBothReady())
+				ok = 1;
+			else
+				ok = 0;
+
+			val = Vector(c1, c2, BGONE_GuidanceBotCoordinator.GetStartEpoch());
+			detail = string.Format("c1=%1 c2=%2 startEpoch=%3", c1, c2, BGONE_GuidanceBotCoordinator.GetStartEpoch());
+			return true;
+		}
+
 		if (queryId == BGONE_GuidanceBotConst.QUERY_GUIDANCE_TARGET_INFO)
 		{
-			string rplAStr = "";
-			if (m_BGONE_GuidanceTargetA)
+			if (!BGONE_GuidanceBotCoordinator.IsClient1Staged())
 			{
-				RplId idA = BGONE_TargetData.ResolveEntityRplId(m_BGONE_GuidanceTargetA);
+				ok = 0;
+				val = vector.Zero;
+				detail = "waiting for shooter staging";
+				return true;
+			}
+
+			IEntity targetA = BGONE_GuidanceBotCoordinator.GetTargetA();
+			IEntity targetB = BGONE_GuidanceBotCoordinator.GetTargetB();
+
+			string rplAStr = "";
+			if (targetA)
+			{
+				RplId idA = BGONE_TargetData.ResolveEntityRplId(targetA);
 				if (idA.IsValid())
 					rplAStr = idA.AsString();
 			}
 
 			string rplBStr = "";
-			if (m_BGONE_GuidanceTargetB)
+			if (targetB)
 			{
-				RplId idB = BGONE_TargetData.ResolveEntityRplId(m_BGONE_GuidanceTargetB);
+				RplId idB = BGONE_TargetData.ResolveEntityRplId(targetB);
 				if (idB.IsValid())
 					rplBStr = idB.AsString();
 			}
 
+			vector posA = BGONE_GuidanceBotCoordinator.GetTargetAPos();
+			vector posB = BGONE_GuidanceBotCoordinator.GetTargetBPos();
+			vector cDir = BGONE_GuidanceBotCoordinator.GetCorridorDir();
+
 			ok = 1;
-			val = m_vBGONE_GuidanceTargetAPos;
+			val = posA;
 			detail = string.Format(
 				"rplA=%1 rplB=%2 epoch=%3 bx=%4 by=%5 bz=%6 cx=%7 cz=%8",
-				rplAStr, rplBStr, m_iBGONE_GuidanceStartEpoch,
-				m_vBGONE_GuidanceTargetBPos[0], m_vBGONE_GuidanceTargetBPos[1], m_vBGONE_GuidanceTargetBPos[2],
-				m_vBGONE_GuidanceCorridorDir[0], m_vBGONE_GuidanceCorridorDir[2]);
+				rplAStr, rplBStr, BGONE_GuidanceBotCoordinator.GetStartEpoch(),
+				posB[0], posB[1], posB[2], cDir[0], cDir[2]);
 			return true;
 		}
 
 		if (queryId == BGONE_GuidanceBotConst.QUERY_GUIDANCE_DISRUPT_TARGET)
 		{
 			int curEpoch = BGONE_GuidedMissileComponent.GetLastLaunchEpoch();
+			int startEpoch = BGONE_GuidanceBotCoordinator.GetStartEpoch();
 			float flightTime = BGONE_GuidedMissileComponent.GetLastTrackedFlightTime();
-			if (curEpoch <= m_iBGONE_GuidanceStartEpoch || flightTime < 0.35)
+			if (curEpoch <= startEpoch || flightTime < 0.2)
 			{
 				ok = 0;
-				val = Vector(flightTime, curEpoch, m_iBGONE_GuidanceStartEpoch);
-				detail = string.Format("waiting for airborne missile (epoch=%1/%2 flight=%3)", curEpoch, m_iBGONE_GuidanceStartEpoch, flightTime);
+				val = Vector(flightTime, curEpoch, startEpoch);
+				detail = string.Format("waiting for airborne missile (epoch=%1/%2 flight=%3)", curEpoch, startEpoch, flightTime);
 				return true;
 			}
 
-			if (!m_bBGONE_GuidanceDisrupted && m_BGONE_GuidanceTargetA)
+			IEntity targetA = BGONE_GuidanceBotCoordinator.GetTargetA();
+			if (!BGONE_GuidanceBotCoordinator.IsDisrupted() && targetA)
 			{
-				BaseWorld world = GetGame().GetWorld();
-				vector behindPos = m_vBGONE_ServerStartPos - m_vBGONE_GuidanceCorridorDir * 120.0;
-				if (world)
-					behindPos[1] = world.GetSurfaceY(behindPos[0], behindPos[2]) + 0.5;
+				vector startPos = BGONE_GuidanceBotCoordinator.GetStartPos();
+				vector cDir = BGONE_GuidanceBotCoordinator.GetCorridorDir();
+				vector behindPos = startPos - cDir * 8.0;
+				behindPos[1] = startPos[1] + 0.5;
 
-				m_BGONE_GuidanceTargetA.SetOrigin(behindPos);
-				m_BGONE_GuidanceTargetA.Update();
-				m_bBGONE_GuidanceDisrupted = true;
+				targetA.SetOrigin(behindPos);
+				targetA.Update();
+				BGONE_GuidanceBotCoordinator.SetDisrupted(true);
 			}
 
 			ok = 1;
@@ -1796,13 +2578,19 @@ modded class SCR_PlayerController : PlayerController
 		if (queryId == BGONE_GuidanceBotConst.QUERY_GUIDANCE_MISSILE_STATE)
 		{
 			int curEpoch = BGONE_GuidedMissileComponent.GetLastLaunchEpoch();
-			if (curEpoch <= m_iBGONE_GuidanceStartEpoch)
+			int startEpoch = BGONE_GuidanceBotCoordinator.GetStartEpoch();
+			if (curEpoch <= startEpoch)
 			{
 				ok = 0;
 				val = vector.Zero;
-				detail = string.Format("waiting for launch (epoch=%1 start=%2)", curEpoch, m_iBGONE_GuidanceStartEpoch);
+				detail = string.Format("waiting for launch (epoch=%1 start=%2)", curEpoch, startEpoch);
 				return true;
 			}
+
+			RplId missileRplId = BGONE_GuidedMissileComponent.GetLastMissileRplId();
+			string missileRplStr = "invalid";
+			if (missileRplId.IsValid())
+				missileRplStr = missileRplId.AsString();
 
 			float flightTime = BGONE_GuidedMissileComponent.GetLastTrackedFlightTime();
 			float travelDist = BGONE_GuidedMissileComponent.GetLastTrackedTravelDistance();
@@ -1824,32 +2612,37 @@ modded class SCR_PlayerController : PlayerController
 			if (tgtId.IsValid())
 				tgtRplStr = tgtId.AsString();
 
+			IEntity targetA = BGONE_GuidanceBotCoordinator.GetTargetA();
+			IEntity targetB = BGONE_GuidanceBotCoordinator.GetTargetB();
+			vector posA = BGONE_GuidanceBotCoordinator.GetTargetAPos();
+			vector posB = BGONE_GuidanceBotCoordinator.GetTargetBPos();
+
 			float distA = 9999.0;
-			if (m_BGONE_GuidanceTargetA)
-				distA = vector.Distance(lastOrigin, m_BGONE_GuidanceTargetA.GetOrigin());
-			else if (m_vBGONE_GuidanceTargetAPos != vector.Zero)
-				distA = vector.Distance(lastOrigin, m_vBGONE_GuidanceTargetAPos);
+			if (targetA)
+				distA = vector.Distance(lastOrigin, targetA.GetOrigin());
+			else if (posA != vector.Zero)
+				distA = vector.Distance(lastOrigin, posA);
 
 			float distB = 9999.0;
-			if (m_BGONE_GuidanceTargetB)
-				distB = vector.Distance(lastOrigin, m_BGONE_GuidanceTargetB.GetOrigin());
-			else if (m_vBGONE_GuidanceTargetBPos != vector.Zero)
-				distB = vector.Distance(lastOrigin, m_vBGONE_GuidanceTargetBPos);
+			if (targetB)
+				distB = vector.Distance(lastOrigin, targetB.GetOrigin());
+			else if (posB != vector.Zero)
+				distB = vector.Distance(lastOrigin, posB);
 
 			vector refFwd = launchFwd;
 			if (refFwd.LengthSq() < 0.001)
-				refFwd = m_vBGONE_GuidanceCorridorDir;
+				refFwd = BGONE_GuidanceBotCoordinator.GetCorridorDir();
 			vector rightVec = BGONE_GuidanceBotHelper.RightVectorXZ(refFwd);
 			vector disp = lastOrigin - launchOrigin;
 			disp[1] = 0.0;
 			float latDisp = vector.Dot(disp, rightVec);
 
 			string part1 = string.Format(
-				"tgtRpl=%1 maxAlt=%2 lAlt=%3 stage=%4 sd=%5 distA=%6 distB=%7",
-				tgtRplStr, maxAlt, launchOrigin[1], peakStage, sdFlag, distA, distB);
+				"rpl=%1 tgtRpl=%2 maxAlt=%3 lAlt=%4 stage=%5 sd=%6 distA=%7 distB=%8",
+				missileRplStr, tgtRplStr, maxAlt, launchOrigin[1], peakStage, sdFlag, distA, distB);
 			string part2 = string.Format(
-				"yawC=%1 pitC=%2 lat=%3",
-				yawC, pitC, latDisp);
+				"yawC=%1 pitC=%2 lat=%3 lox=%4 loz=%5 lfx=%6 lfz=%7",
+				yawC, pitC, latDisp, launchOrigin[0], launchOrigin[2], refFwd[0], refFwd[2]);
 
 			ok = 1;
 			val = Vector(flightTime, travelDist, detCount);
@@ -1858,5 +2651,14 @@ modded class SCR_PlayerController : PlayerController
 		}
 
 		return super.BGONE_BotAnswerQuery(queryId, ok, val, detail);
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override protected void BGONE_BotOnEnd(int passed, string detail)
+	{
+		if (BGONE_GuidanceBotHelper.IsGuidanceScenario(BGONE_BotScenario()))
+			BGONE_GuidanceBotCoordinator.MarkClientEnded(BGONE_BotClientIndex());
+
+		super.BGONE_BotOnEnd(passed, detail);
 	}
 }

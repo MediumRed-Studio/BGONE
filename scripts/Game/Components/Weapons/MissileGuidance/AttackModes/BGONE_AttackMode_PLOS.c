@@ -22,8 +22,9 @@ class BGONE_AttackProfile_PLOS : BGONE_AttackProfile_Base
 		}
 
 		vector baseAngles = launchDir.VectorToAngles();
+		float basePitch = Math.MapAngle(baseAngles[1]);
 		float newYaw = baseAngles[0] + (targetData.yawChange * flightTime);
-		float newPitch = Math.Clamp(baseAngles[1] + (targetData.pitchChange * flightTime), -85.0, 85.0);
+		float newPitch = Math.Clamp(basePitch + (targetData.pitchChange * flightTime), -85.0, 85.0);
 
 		vector newTargetDirection = Vector(newYaw, newPitch, 0.0).AnglesToVector();
 		vector targetPos = targetData.launchPos + (newTargetDirection * (GetDistanceFromLaunch(targetData) + 10.0));

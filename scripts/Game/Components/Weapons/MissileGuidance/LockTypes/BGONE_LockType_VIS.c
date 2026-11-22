@@ -175,11 +175,12 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		// 1b. Tight 0.5 deg micro-cross around centerline so near-center targets switch cleanly
 		// even if previousTarget is still within the 0.3 rad tracking cone.
 		vector baseAngles = currentDir.VectorToAngles();
+		float basePitch = Math.MapAngle(baseAngles[1]);
 		float microYaw[4] = {-0.5, 0.5, 0.0, 0.0};
 		float microPitch[4] = {0.0, 0.0, -0.5, 0.5};
 		for (int m = 0; m < 4; m++)
 		{
-			vector microAngles = Vector(baseAngles[0] + microYaw[m], Math.Clamp(baseAngles[1] + microPitch[m], -89.0, 89.0), 0.0);
+			vector microAngles = Vector(baseAngles[0] + microYaw[m], Math.Clamp(basePitch + microPitch[m], -89.0, 89.0), 0.0);
 			vector microTo = aimFrom + microAngles.AnglesToVector() * (float)m_iMaxLockOnRange;
 			IEntity microHit = TraceLOS(aimFrom, microTo);
 			if (microHit)
@@ -222,7 +223,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		{
 			for (float gy = -2.0; gy <= 2.0; gy += 0.5)
 			{
-				vector scanAngles = Vector(baseAngles[0] + gx, Math.Clamp(baseAngles[1] + gy, -89.0, 89.0), 0.0);
+				vector scanAngles = Vector(baseAngles[0] + gx, Math.Clamp(basePitch + gy, -89.0, 89.0), 0.0);
 				vector testPos = aimFrom + scanAngles.AnglesToVector() * (float)m_iMaxLockOnRange;
 				IEntity gridHit = TraceLOS(aimFrom, testPos);
 				if (gridHit)
@@ -452,9 +453,10 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 			vector currentDir = dirAndPos[0].Normalized();
 			vector aimFrom = dirAndPos[1];
 			vector baseAngles = currentDir.VectorToAngles();
+			float basePitch = Math.MapAngle(baseAngles[1]);
 
-			vector tlAngles = Vector(baseAngles[0] - 4.5, Math.Clamp(baseAngles[1] + 2.0, -89.0, 89.0), 0.0);
-			vector brAngles = Vector(baseAngles[0] + 4.0, Math.Clamp(baseAngles[1] - 2.0, -89.0, 89.0), 0.0);
+			vector tlAngles = Vector(baseAngles[0] - 4.5, Math.Clamp(basePitch + 2.0, -89.0, 89.0), 0.0);
+			vector brAngles = Vector(baseAngles[0] + 4.0, Math.Clamp(basePitch - 2.0, -89.0, 89.0), 0.0);
 
 			vector tlPos = aimFrom + tlAngles.AnglesToVector() * (float)m_iMaxLockOnRange;
 			vector brPos = aimFrom + brAngles.AnglesToVector() * (float)m_iMaxLockOnRange;
