@@ -445,6 +445,8 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		if (!IsActive())
 			Activate(m_eOwner);
 		SetEventMask(m_eOwner, EntityEvent.INIT | EntityEvent.FRAME);
+		if (m_MoveComponent)
+			m_MoveComponent.EnableSimulation(m_eOwner);
 		RegisterAsLastTracked();
 
 		return m_aDbgCollisionShapes;
@@ -699,6 +701,11 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 
 		if (isFirstSync || snapped)
 		{
+			// Ensure proxy MissileMoveComponent simulation is enabled even if the client missed
+			// native launch activation (e.g. remote observer seeing a pre-loaded tube round).
+			if (m_MoveComponent)
+				m_MoveComponent.EnableSimulation(m_eOwner);
+
 			SetCurrentVelocity(velocity);
 			if (velocity.LengthSq() > 0.01)
 				m_eOwner.SetYawPitchRoll(velocity.VectorToAngles());
