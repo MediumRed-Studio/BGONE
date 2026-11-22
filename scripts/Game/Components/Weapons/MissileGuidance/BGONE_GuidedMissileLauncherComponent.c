@@ -608,14 +608,27 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		}
 
 		if (!m_eLockTypeComponent)
+		{
+			if (Replication.IsServer())
+				m_eLastMissile = null;
 			return;
+		}
 
 		BGONE_TargetData rawTargetData = m_eLockTypeComponent.GetCurrentTargetData();
-		BGONE_TargetData clonedData;
-		if (rawTargetData)
-			clonedData = BGONE_TargetData.Cast(rawTargetData.Clone());
+		if (!rawTargetData)
+		{
+			if (Replication.IsServer())
+				m_eLastMissile = null;
+			return;
+		}
+
+		BGONE_TargetData clonedData = BGONE_TargetData.Cast(rawTargetData.Clone());
 		if (!clonedData)
-			clonedData = new BGONE_TargetData();
+		{
+			if (Replication.IsServer())
+				m_eLastMissile = null;
+			return;
+		}
 
 		clonedData.launchPos = entity.GetOrigin();
 		clonedData.attackProfileIndex = m_iCurrentAttackModeIndex;
