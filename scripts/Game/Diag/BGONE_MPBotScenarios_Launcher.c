@@ -542,6 +542,7 @@ class BGONE_BotBeat_TurretAdsAndLock : BGONE_BotBeat
 {
 	protected static const int LOCK_HOLD_MS = 400;
 	protected bool m_bAdsReached;
+	protected bool m_bAdsInputSent;
 	protected bool m_bContextSeen;
 	protected bool m_bLockStarted;
 	protected int m_iLockStartMs;
@@ -557,6 +558,7 @@ class BGONE_BotBeat_TurretAdsAndLock : BGONE_BotBeat
 	override void OnStart(BGONE_BotRun run)
 	{
 		m_bAdsReached = false;
+		m_bAdsInputSent = false;
 		m_bContextSeen = false;
 		m_bLockStarted = false;
 		m_iLockStartMs = -1;
@@ -586,9 +588,19 @@ class BGONE_BotBeat_TurretAdsAndLock : BGONE_BotBeat
 			return EBGONE_BotBeatState.FAIL;
 		}
 
-		turretCtrl.SetWeaponADS(true);
-		turretCtrl.SetWeaponADSInput(true);
-		turretCtrl.SetCurrentSightsADS(true);
+		bool adsBefore = turretCtrl.IsWeaponADS();
+		if (!turretCtrl.GetWeaponADSEnabled())
+			turretCtrl.SetWeaponADSEnabled(true);
+
+		if (!adsBefore)
+		{
+			turretCtrl.SetWeaponADS(true);
+			if (!m_bAdsInputSent && elapsedMs >= 300)
+			{
+				turretCtrl.SetWeaponADSInput(true);
+				m_bAdsInputSent = true;
+			}
+		}
 
 		if (!turretCtrl.IsWeaponADS())
 			return EBGONE_BotBeatState.RUNNING;
@@ -612,14 +624,19 @@ class BGONE_BotBeat_TurretAdsAndLock : BGONE_BotBeat
 		{
 			BaseWeaponManagerComponent tMgr = turretCtrl.GetWeaponManager();
 			string curWepClass = "none";
+			bool wepOwnerMatches = false;
 			if (tMgr && tMgr.GetCurrentWeapon())
-				curWepClass = tMgr.GetCurrentWeapon().ClassName();
+			{
+				BaseWeaponComponent curWep = tMgr.GetCurrentWeapon();
+				curWepClass = curWep.ClassName();
+				wepOwnerMatches = (curWep.GetOwner() == launcher.GetOwner());
+			}
 
 			m_sDetail = string.Format(
-				"turret launcher IsLocking() became false while in turret ADS (elapsed=%1 lockStart=%2 isAds=%3 sightsAds=%4 ctx=%5 bound=%6 curWep=%7)",
-				elapsedMs, m_iLockStartMs, turretCtrl.IsWeaponADS(), turretCtrl.GetCurrentSightsADS(),
+				"turret launcher IsLocking() became false while in turret ADS (t=%1/%2 adsBefore=%3 isAds=%4 adsIn=%5 ctx=%6 bound=%7 wep=%8)",
+				elapsedMs, m_iLockStartMs, adsBefore, turretCtrl.IsWeaponADS(), turretCtrl.GetWeaponADSInput(),
 				inputMgr.IsContextActive(BGONE_BotLauncherHelper.LAUNCHER_INPUT_CONTEXT),
-				launcher.IsLauncherBound(), curWepClass);
+				launcher.IsLauncherBound(), string.Format("%1:%2", curWepClass, wepOwnerMatches));
 			return EBGONE_BotBeatState.FAIL;
 		}
 
