@@ -53,21 +53,20 @@ class BGONE_ArtilleryComputerComponent : ScriptComponent
 	//------------------------------------------------------------------------------------------------
 	static bool IsFiniteFloat(float value)
 	{
-		return (value == value) && (value > -1000000000.0) && (value < 1000000000.0);
+		return (value == value) && (value > -float.INFINITY) && (value < float.INFINITY);
 	}
 
 	//------------------------------------------------------------------------------------------------
 	static float NormalizeAngleDeg(float angleDeg)
 	{
-		if (!IsFiniteFloat(angleDeg))
+		if (!IsFiniteFloat(angleDeg) || Math.AbsFloat(angleDeg) > 1000000.0)
 			return 0.0;
 
-		float wrapped = angleDeg;
-		while (wrapped > 180.0)
-			wrapped = wrapped - 360.0;
-
-		while (wrapped <= -180.0)
+		float wrapped = angleDeg - (Math.Floor((angleDeg + 180.0) / 360.0) * 360.0);
+		if (wrapped <= -180.0)
 			wrapped = wrapped + 360.0;
+		else if (wrapped > 180.0)
+			wrapped = wrapped - 360.0;
 
 		return wrapped;
 	}
@@ -348,26 +347,28 @@ class BGONE_ArtilleryComputerComponent : ScriptComponent
 
 		float gravity = GetWorldGravity();
 		float vSq = initialVelocity * initialVelocity;
-		float v4 = vSq * vSq;
-		float inner = (gravity * range * range) + (2.0 * elevationDelta * vSq);
-		float disc = v4 - (gravity * inner);
-
-		if (!IsFiniteFloat(disc) || disc < 0.0)
+		if (!IsFiniteFloat(vSq) || vSq <= 0.000001)
 			return false;
 
-		float sqrtDisc = Math.Sqrt(disc);
-		float denomHigh = gravity * range;
-		if (!IsFiniteFloat(sqrtDisc) || denomHigh <= 0.000001)
+		// Dimensionless formulation dividing the quadratic by v^2 to avoid float32 v^4 overflow
+		// at high muzzle velocities (>= 178 m/s) while remaining algebraically exact.
+		float k = (gravity * range) / vSq;
+		float elevTerm = (2.0 * gravity * elevationDelta) / vSq;
+		float discNorm = 1.0 - (k * k) - elevTerm;
+
+		if (!IsFiniteFloat(k) || !IsFiniteFloat(discNorm) || k <= 0.0 || discNorm < 0.0)
 			return false;
 
-		float highPitchDeg = Math.Atan2(vSq + sqrtDisc, denomHigh) * Math.RAD2DEG;
+		float sqrtDiscNorm = Math.Sqrt(discNorm);
+		if (!IsFiniteFloat(sqrtDiscNorm))
+			return false;
 
-		// Algebraically identical rationalized form of atan2(v^2 - sqrt(disc), g * R)
-		// that avoids catastrophic float32 cancellation at high muzzle velocities.
-		float lowPitchDeg = INVALID_PITCH_DEG;
-		float denomLow = range * (vSq + sqrtDisc);
-		if (denomLow > 0.000001)
-			lowPitchDeg = Math.Atan2(inner, denomLow) * Math.RAD2DEG;
+		float highPitchDeg = Math.Atan2(1.0 + sqrtDiscNorm, k) * Math.RAD2DEG;
+
+		// Algebraically identical rationalized low-arc form:
+		// (1 - sqrt(discNorm)) / k = (k + 2 * dy / R) / (1 + sqrt(discNorm)),
+		// avoiding catastrophic float32 cancellation when k << 1.
+		float lowPitchDeg = Math.Atan2(k + (2.0 * (elevationDelta / range)), 1.0 + sqrtDiscNorm) * Math.RAD2DEG;
 
 		bool hasVertLimits = IsFiniteFloat(minPitchDeg) && IsFiniteFloat(maxPitchDeg) && (maxPitchDeg > minPitchDeg);
 		if (hasVertLimits)

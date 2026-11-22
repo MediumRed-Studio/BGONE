@@ -1,4 +1,5 @@
 Vehicle : "{C012BB3488BEA0C2}Prefabs/Vehicles/Wheeled/BTR70/BTR70.et" {
+ ID "BBCBA43A9778AE21"
  components {
   BGONE_ArtilleryComputerComponent "{62A47E1B8C3D9F22}" {
   }
