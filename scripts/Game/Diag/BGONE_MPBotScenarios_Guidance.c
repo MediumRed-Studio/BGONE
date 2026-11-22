@@ -63,6 +63,7 @@ class BGONE_GuidanceBotCoordinator
 	protected static vector s_vTargetAPos;
 	protected static vector s_vTargetBPos;
 	protected static bool s_bDisrupted;
+	protected static bool s_bPeerFailed;
 	protected static vector s_vCorridorDir;
 	protected static vector s_vStartPos;
 
@@ -77,12 +78,13 @@ class BGONE_GuidanceBotCoordinator
 
 		s_sScenarioName = scenarioName;
 		s_bClient1Staged = false;
+		s_bPeerFailed = false;
 		s_TargetA = null;
 		s_TargetB = null;
 		s_vTargetAPos = vector.Zero;
 		s_vTargetBPos = vector.Zero;
 		s_bDisrupted = false;
-		s_vCorridorDir = Vector(0.707, 0.0, -0.707);
+		s_vCorridorDir = Vector(0.866, 0.0, -0.5);
 		s_vStartPos = startPos;
 		s_iStartEpoch = BGONE_GuidedMissileComponent.GetLastLaunchEpoch();
 	}
@@ -153,8 +155,14 @@ class BGONE_GuidanceBotCoordinator
 	}
 
 	//------------------------------------------------------------------------------------------------
-	static void MarkClientEnded(int clientIndex)
+	static bool IsPeerFailed() { return s_bPeerFailed; }
+
+	//------------------------------------------------------------------------------------------------
+	static void MarkClientEnded(int clientIndex, int passed)
 	{
+		if (passed == 0)
+			s_bPeerFailed = true;
+
 		if (clientIndex == 1)
 		{
 			s_iClient1ReadyTick = 0;
@@ -874,6 +882,12 @@ class BGONE_BotBeat_VerifyVisTopFlight : BGONE_BotBeat
 			m_sLastDetail = run.AnswerDetail(m_iPendingSeq);
 			m_iPendingSeq = 0;
 
+			if (!srvOk && BGONE_FlightBotHelper.ExtractToken(m_sLastDetail, "peerFailed").ToInt() == 1)
+			{
+				m_sDetail = string.Format("aborted because peer client failed before launch (%1)", m_sLastDetail);
+				return EBGONE_BotBeatState.FAIL;
+			}
+
 			if (srvOk)
 			{
 				int detCount = Math.Round(srvVal[2]);
@@ -977,6 +991,12 @@ class BGONE_BotBeat_VerifyVisSwitchLaunch : BGONE_BotBeat
 			vector srvVal = run.AnswerValue(m_iPendingSeq);
 			m_sLastDetail = run.AnswerDetail(m_iPendingSeq);
 			m_iPendingSeq = 0;
+
+			if (!srvOk && BGONE_FlightBotHelper.ExtractToken(m_sLastDetail, "peerFailed").ToInt() == 1)
+			{
+				m_sDetail = string.Format("aborted because peer client failed before launch (%1)", m_sLastDetail);
+				return EBGONE_BotBeatState.FAIL;
+			}
 
 			if (srvOk)
 			{
@@ -1363,6 +1383,12 @@ class BGONE_BotBeat_VerifyPlosFlight : BGONE_BotBeat
 			m_sLastDetail = run.AnswerDetail(m_iPendingSeq);
 			m_iPendingSeq = 0;
 
+			if (!srvOk && BGONE_FlightBotHelper.ExtractToken(m_sLastDetail, "peerFailed").ToInt() == 1)
+			{
+				m_sDetail = string.Format("aborted because peer client failed before launch (%1)", m_sLastDetail);
+				return EBGONE_BotBeatState.FAIL;
+			}
+
 			if (srvOk)
 			{
 				int detCount = Math.Round(srvVal[2]);
@@ -1542,6 +1568,12 @@ class BGONE_BotBeat_SaclosFireSteerAndVerify : BGONE_BotBeat
 			m_sLastDetail = run.AnswerDetail(m_iPendingSeq);
 			m_iPendingSeq = 0;
 
+			if (!srvOk && BGONE_FlightBotHelper.ExtractToken(m_sLastDetail, "peerFailed").ToInt() == 1)
+			{
+				m_sDetail = string.Format("aborted because peer client failed before launch (%1)", m_sLastDetail);
+				return EBGONE_BotBeatState.FAIL;
+			}
+
 			if (srvOk)
 			{
 				float flightTime = srvVal[0];
@@ -1663,6 +1695,12 @@ class BGONE_BotBeat_GuidanceSyncBarrier : BGONE_BotBeat
 			{
 				m_sDetail = string.Format("both guidance clients synchronized in %1 ms (%2)", elapsedMs, m_sLastDetail);
 				return EBGONE_BotBeatState.PASS;
+			}
+
+			if (BGONE_FlightBotHelper.ExtractToken(m_sLastDetail, "peerFailed").ToInt() == 1)
+			{
+				m_sDetail = string.Format("aborted sync barrier because peer client failed (%1)", m_sLastDetail);
+				return EBGONE_BotBeatState.FAIL;
 			}
 		}
 
@@ -1949,6 +1987,12 @@ class BGONE_BotBeat_VerifyGuidanceObserverProxy : BGONE_BotBeat
 			vector srvVal = run.AnswerValue(m_iPendingSeq);
 			m_sLastDetail = run.AnswerDetail(m_iPendingSeq);
 			m_iPendingSeq = 0;
+
+			if (!srvOk && BGONE_FlightBotHelper.ExtractToken(m_sLastDetail, "peerFailed").ToInt() == 1)
+			{
+				m_sDetail = string.Format("aborted because peer client failed before launch (%1)", m_sLastDetail);
+				return EBGONE_BotBeatState.FAIL;
+			}
 
 			if (srvOk)
 			{
@@ -2238,6 +2282,22 @@ modded class SCR_PlayerController : PlayerController
 	}
 
 	//------------------------------------------------------------------------------------------------
+	protected bool BGONE_GuidanceProbeFilter(IEntity ent)
+	{
+		if (!ent)
+			return false;
+
+		if (ChimeraCharacter.Cast(ent))
+			return false;
+
+		IEntity root = ent.GetRootParent();
+		if (root && ChimeraCharacter.Cast(root))
+			return false;
+
+		return true;
+	}
+
+	//------------------------------------------------------------------------------------------------
 	protected bool BGONE_GuidanceIsSolidFlat(BaseWorld world, vector origin, vector pos)
 	{
 		float surfY = world.GetSurfaceY(pos[0], pos[2]);
@@ -2277,43 +2337,69 @@ modded class SCR_PlayerController : PlayerController
 				return false;
 		}
 
+		// Trace multiple heights and lateral offsets starting 2m ahead, filtering characters so
+		// neither player capsule nor low pre-placed map entities sit inside the VIS cone.
 		float surfY = world.GetSurfaceY(endPos[0], endPos[2]);
+		float heights[3] = {0.8, 1.5, 2.2};
+		float lats[3] = {-2.5, 0.0, 2.5};
 		TraceParam tp = new TraceParam();
-		tp.Start = origin + Vector(0.0, 1.6, 0.0);
-		tp.End = Vector(endPos[0], surfY + 1.6, endPos[2]);
 		tp.LayerMask = EPhysicsLayerDefs.Projectile;
 		tp.Flags = TraceFlags.ANY_CONTACT | TraceFlags.WORLD | TraceFlags.ENTS;
-		tp.Exclude = character;
 
-		float pct = world.TraceMove(tp, null);
-		return pct >= 0.98;
+		for (int li = 0; li < 3; li++)
+		{
+			vector latVec = rightDir * lats[li];
+			for (int hi = 0; hi < 3; hi++)
+			{
+				tp.Start = origin + dirXZ * 2.0 + latVec + Vector(0.0, heights[hi], 0.0);
+				tp.End = Vector(endPos[0] + latVec[0], surfY + heights[hi], endPos[2] + latVec[2]);
+				tp.TraceEnt = null;
+
+				float pct = world.TraceMove(tp, BGONE_GuidanceProbeFilter);
+				if (pct < 0.99)
+					return false;
+			}
+		}
+
+		return true;
 	}
 
 	//------------------------------------------------------------------------------------------------
-	protected vector BGONE_GuidanceResolveCorridorDir(BaseWorld world, IEntity character, float checkDist, float lateralMargin)
+	protected vector BGONE_GuidanceResolveCorridorDir(
+		BaseWorld world,
+		IEntity character,
+		float checkDist,
+		float lateralMargin,
+		out float outResolvedDist)
 	{
-		// Prioritize South-East / East-South-East / South-South-East (longest solid flat diagonal from MPTest NW spawn),
-		// then sweep all 15 deg azimuths.
-		float preferredYaws[5] = {135.0, 120.0, 150.0, 90.0, 180.0};
-		for (int i = 0; i < 5; i++)
+		// Prioritize 120/150/110/160 deg first so we stay cleanly off the (128,128) map center on 135 deg.
+		float preferredYaws[8] = {120.0, 150.0, 110.0, 160.0, 105.0, 90.0, 180.0, 135.0};
+		for (int i = 0; i < 8; i++)
 		{
 			vector cand = vector.FromYaw(preferredYaws[i]);
 			if (BGONE_GuidanceProbeCorridor(world, character, cand, checkDist, lateralMargin))
+			{
+				outResolvedDist = checkDist;
 				return cand;
+			}
 		}
 
 		for (float yaw = 0.0; yaw < 360.0; yaw += 15.0)
 		{
 			vector cand = vector.FromYaw(yaw);
 			if (BGONE_GuidanceProbeCorridor(world, character, cand, checkDist, lateralMargin))
+			{
+				outResolvedDist = checkDist;
 				return cand;
+			}
 		}
 
-		// Fallback: shorter distance probe if map is compact.
-		if (checkDist > 180.0)
-			return BGONE_GuidanceResolveCorridorDir(world, character, 180.0, lateralMargin);
+		// Step down distance if the map is compact, returning exact verified distance.
+		if (checkDist > 170.0)
+			return BGONE_GuidanceResolveCorridorDir(world, character, checkDist - 30.0, lateralMargin, outResolvedDist);
 
-		return vector.FromYaw(135.0);
+		outResolvedDist = 170.0;
+		return vector.FromYaw(120.0);
 	}
 
 	//------------------------------------------------------------------------------------------------
@@ -2361,7 +2447,23 @@ modded class SCR_PlayerController : PlayerController
 		int clientIdx = BGONE_BotClientIndex();
 		if (clientIdx != 1)
 		{
-			fixturePos = character.GetOrigin();
+			BaseWorld obsWorld = GetGame().GetWorld();
+			vector obsPos = character.GetOrigin();
+			if (obsWorld)
+			{
+				// Separate Observer 2.5m East-North-East from spawn point so Clients 1 & 2 never
+				// overlap physics capsules when deploying on the same server tick.
+				vector sepPos = obsPos + Vector(2.5, 0.0, 2.5);
+				float sepY = obsWorld.GetSurfaceY(sepPos[0], sepPos[2]);
+				if (sepY > -10.0)
+				{
+					sepPos[1] = sepY;
+					SCR_Global.TeleportPlayer(GetPlayerId(), sepPos);
+					obsPos = character.GetOrigin();
+				}
+			}
+
+			fixturePos = obsPos;
 			detail = string.Format("guidance observer client %1 ready at %2", clientIdx, fixturePos);
 			return 0;
 		}
@@ -2407,8 +2509,8 @@ modded class SCR_PlayerController : PlayerController
 		if (launcherRpl && launcherRpl.Id().IsValid())
 			fixtureId = launcherRpl.Id();
 
-		// Resolve clear solid-terrain firing corridor inside map bounds.
-		float probeDist = 240.0;
+		// Resolve clear solid-terrain firing corridor inside map bounds and clamp target range to resolvedDist.
+		float probeDist = 230.0;
 		float lateralMargin = 10.0;
 		if (scenarioName == BGONE_GuidanceBotConst.SCENARIO_VIS_TARGET_SWITCH)
 		{
@@ -2417,10 +2519,11 @@ modded class SCR_PlayerController : PlayerController
 		}
 		else if (scenarioName == BGONE_GuidanceBotConst.SCENARIO_VIS_OCCLUSION_SD)
 		{
-			probeDist = 260.0;
+			probeDist = 250.0;
 		}
 
-		vector corridorDir = BGONE_GuidanceResolveCorridorDir(world, character, probeDist, lateralMargin);
+		float resolvedDist = probeDist;
+		vector corridorDir = BGONE_GuidanceResolveCorridorDir(world, character, probeDist, lateralMargin, resolvedDist);
 		float broadsideYaw = corridorDir.ToYaw() + 90.0;
 		vector rightDir = BGONE_GuidanceBotHelper.RightVectorXZ(corridorDir);
 		vector shooterOrigin = character.GetOrigin();
@@ -2430,7 +2533,8 @@ modded class SCR_PlayerController : PlayerController
 
 		if (scenarioName == BGONE_GuidanceBotConst.SCENARIO_VIS_TOP_STATIC)
 		{
-			vector posA = shooterOrigin + corridorDir * 220.0;
+			float distA = Math.Min(220.0, resolvedDist);
+			vector posA = shooterOrigin + corridorDir * distA;
 			posA[1] = world.GetSurfaceY(posA[0], posA[2]) + 0.2;
 			targetA = BGONE_GuidanceSpawnEntity(world, scenarioName, BGONE_GuidanceBotConst.PREFAB_TARGET_BTR70, posA, broadsideYaw);
 			if (!targetA)
@@ -2442,9 +2546,10 @@ modded class SCR_PlayerController : PlayerController
 		else if (scenarioName == BGONE_GuidanceBotConst.SCENARIO_VIS_TARGET_SWITCH)
 		{
 			// 200m forward, +/-25m lateral (~14.2 deg separation -> both inside 0.3 rad / 17.2 deg seeker cone).
-			vector posA = shooterOrigin + corridorDir * 200.0 - rightDir * 25.0;
+			float distSwitch = Math.Min(200.0, resolvedDist);
+			vector posA = shooterOrigin + corridorDir * distSwitch - rightDir * 25.0;
 			posA[1] = world.GetSurfaceY(posA[0], posA[2]) + 0.2;
-			vector posB = shooterOrigin + corridorDir * 200.0 + rightDir * 25.0;
+			vector posB = shooterOrigin + corridorDir * distSwitch + rightDir * 25.0;
 			posB[1] = world.GetSurfaceY(posB[0], posB[2]) + 0.2;
 
 			targetA = BGONE_GuidanceSpawnEntity(world, scenarioName, BGONE_GuidanceBotConst.PREFAB_TARGET_BTR70, posA, broadsideYaw);
@@ -2457,7 +2562,8 @@ modded class SCR_PlayerController : PlayerController
 		}
 		else if (scenarioName == BGONE_GuidanceBotConst.SCENARIO_VIS_OCCLUSION_SD)
 		{
-			vector posA = shooterOrigin + corridorDir * 255.0;
+			float distSd = Math.Min(250.0, resolvedDist);
+			vector posA = shooterOrigin + corridorDir * distSd;
 			posA[1] = world.GetSurfaceY(posA[0], posA[2]) + 0.2;
 			targetA = BGONE_GuidanceSpawnEntity(world, scenarioName, BGONE_GuidanceBotConst.PREFAB_TARGET_BTR70, posA, broadsideYaw);
 			if (!targetA)
@@ -2496,8 +2602,12 @@ modded class SCR_PlayerController : PlayerController
 			else
 				ok = 0;
 
+			int pfFlag = 0;
+			if (BGONE_GuidanceBotCoordinator.IsPeerFailed())
+				pfFlag = 1;
+
 			val = Vector(c1, c2, BGONE_GuidanceBotCoordinator.GetStartEpoch());
-			detail = string.Format("c1=%1 c2=%2 startEpoch=%3", c1, c2, BGONE_GuidanceBotCoordinator.GetStartEpoch());
+			detail = string.Format("c1=%1 c2=%2 startEpoch=%3 peerFailed=%4", c1, c2, BGONE_GuidanceBotCoordinator.GetStartEpoch(), pfFlag);
 			return true;
 		}
 
@@ -2581,9 +2691,12 @@ modded class SCR_PlayerController : PlayerController
 			int startEpoch = BGONE_GuidanceBotCoordinator.GetStartEpoch();
 			if (curEpoch <= startEpoch)
 			{
+				int pf = 0;
+				if (BGONE_GuidanceBotCoordinator.IsPeerFailed())
+					pf = 1;
 				ok = 0;
 				val = vector.Zero;
-				detail = string.Format("waiting for launch (epoch=%1 start=%2)", curEpoch, startEpoch);
+				detail = string.Format("waiting for launch (epoch=%1 start=%2 peerFailed=%3)", curEpoch, startEpoch, pf);
 				return true;
 			}
 
@@ -2657,7 +2770,7 @@ modded class SCR_PlayerController : PlayerController
 	override protected void BGONE_BotOnEnd(int passed, string detail)
 	{
 		if (BGONE_GuidanceBotHelper.IsGuidanceScenario(BGONE_BotScenario()))
-			BGONE_GuidanceBotCoordinator.MarkClientEnded(BGONE_BotClientIndex());
+			BGONE_GuidanceBotCoordinator.MarkClientEnded(BGONE_BotClientIndex(), passed);
 
 		super.BGONE_BotOnEnd(passed, detail);
 	}

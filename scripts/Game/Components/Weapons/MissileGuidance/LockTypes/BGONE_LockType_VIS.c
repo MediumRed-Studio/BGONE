@@ -30,6 +30,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 
 	protected ref TraceParam m_TraceParam;
 	protected ref array<IEntity> m_aTraceExclude;
+	protected IEntity m_eTraceSelfRoot;
 	protected ref array<ref Shape> m_aDbgCollisionShapes;
 
 	//------------------------------------------------------------------------------------------------
@@ -235,6 +236,21 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 	}
 
 	//------------------------------------------------------------------------------------------------
+	protected bool FilterSelfEntity(IEntity ent)
+	{
+		if (!ent)
+			return false;
+
+		if (m_eLauncher && (ent == m_eLauncher || ent.GetRootParent() == m_eLauncher))
+			return false;
+
+		if (m_eTraceSelfRoot && (ent == m_eTraceSelfRoot || ent.GetRootParent() == m_eTraceSelfRoot))
+			return false;
+
+		return true;
+	}
+
+	//------------------------------------------------------------------------------------------------
 	protected IEntity TraceLOS(vector from, vector to)
 	{
 		if (!m_eLauncher)
@@ -250,11 +266,11 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		if (!m_aTraceExclude)
 			m_aTraceExclude = {};
 
+		m_eTraceSelfRoot = m_eLauncher.GetRootParent();
 		m_aTraceExclude.Clear();
 		m_aTraceExclude.Insert(m_eLauncher);
-		IEntity rootParent = m_eLauncher.GetRootParent();
-		if (rootParent && rootParent != m_eLauncher)
-			m_aTraceExclude.Insert(rootParent);
+		if (m_eTraceSelfRoot && m_eTraceSelfRoot != m_eLauncher)
+			m_aTraceExclude.Insert(m_eTraceSelfRoot);
 
 		m_TraceParam.Start = from;
 		m_TraceParam.End = to;
@@ -264,7 +280,7 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		m_TraceParam.ExcludeArray = m_aTraceExclude;
 		m_TraceParam.TraceEnt = null;
 
-		world.TraceMove(m_TraceParam, null);
+		world.TraceMove(m_TraceParam, FilterSelfEntity);
 		if (!m_TraceParam.TraceEnt)
 			return null;
 
@@ -277,10 +293,18 @@ class BGONE_LockType_VIS : BGONE_LockType_Base
 		if (!ent)
 			return null;
 
-		// Walk up parent hierarchy so hitting a vehicle wheel/turret/door sub-entity resolves the vehicle.
+		IEntity launcherRoot = null;
+		if (m_eLauncher)
+			launcherRoot = m_eLauncher.GetRootParent();
+
+		// Walk up parent hierarchy so hitting a vehicle wheel/turret/door sub-entity resolves the vehicle,
+		// while never locking onto the launcher, shooter, or shooter's own vehicle.
 		IEntity cur = ent;
 		while (cur)
 		{
+			if (cur == m_eLauncher || (launcherRoot && cur == launcherRoot))
+				return null;
+
 			PerceivableComponent perceivableComp = PerceivableComponent.Cast(cur.FindComponent(PerceivableComponent));
 			if (perceivableComp)
 			{
