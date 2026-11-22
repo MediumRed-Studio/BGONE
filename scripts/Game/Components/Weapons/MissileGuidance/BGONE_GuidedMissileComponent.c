@@ -50,6 +50,8 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	protected vector m_vSyncedPos = vector.Zero;
 	protected vector m_vSyncedVel = vector.Zero;
 	protected float m_fProxySyncAge = 0.0;
+	protected bool m_bHasProxyIntegratedOrigin = false;
+	protected vector m_vLastProxyIntegratedOrigin = vector.Zero;
 	protected int m_iSyncReceiveCount = 0;
 	protected float m_fLastSyncErrorMeters = 0.0;
 	protected float m_fMaxSyncErrorMeters = 0.0;
@@ -598,11 +600,8 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 
 		vector targetProxyPos = m_vSyncedPos + m_vSyncedVel * clampedAge;
 		vector curOrigin = m_eOwner.GetOrigin();
-		m_vLastKnownOrigin = curOrigin;
-
-		float distFromStart = vector.Distance(m_vLaunchOrigin, curOrigin);
-		if (distFromStart > m_fTravelDistanceMeters)
-			m_fTravelDistanceMeters = distFromStart;
+		bool engineAdvanced = m_bHasProxyIntegratedOrigin
+			&& (vector.DistanceSq(curOrigin, m_vLastProxyIntegratedOrigin) > 0.0001);
 
 		vector posError = targetProxyPos - curOrigin;
 		float effectiveGain = PROXY_CORRECTION_GAIN;
@@ -620,19 +619,43 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		SetCurrentVelocity(desiredVel);
 		m_fLastSpeed = desiredVel.Length();
 
-		if (desiredVel.LengthSq() > 0.01)
+		if (!engineAdvanced)
 		{
-			vector desiredAngles = desiredVel.VectorToAngles();
-			vector curAngles = m_eOwner.GetYawPitchRoll();
-			vector angErr = SCR_Math3D.FixEulerVector180(desiredAngles - curAngles);
-			vector angularVel = SCR_Math3D.GetFixedAxisVector(angErr) * (Math.DEG2RAD / inTimeSlice);
-			angularVel = SCR_Math3D.ClampMagnitude(angularVel, BGONE_MissileEngine_Base.MAX_ANGULAR_SPEED_RAD);
-			SetCurrentAngularVelocity(angularVel);
+			vector nextOrigin = curOrigin + desiredVel * inTimeSlice;
+			m_eOwner.SetOrigin(nextOrigin);
+			curOrigin = nextOrigin;
+			m_vLastProxyIntegratedOrigin = curOrigin;
+			m_bHasProxyIntegratedOrigin = true;
+
+			if (desiredVel.LengthSq() > 0.01)
+				m_eOwner.SetYawPitchRoll(desiredVel.VectorToAngles());
+			else
+				SetCurrentAngularVelocity(vector.Zero);
 		}
 		else
 		{
-			SetCurrentAngularVelocity(vector.Zero);
+			m_vLastProxyIntegratedOrigin = curOrigin;
+			m_bHasProxyIntegratedOrigin = true;
+
+			if (desiredVel.LengthSq() > 0.01)
+			{
+				vector desiredAngles = desiredVel.VectorToAngles();
+				vector curAngles = m_eOwner.GetYawPitchRoll();
+				vector angErr = SCR_Math3D.FixEulerVector180(desiredAngles - curAngles);
+				vector angularVel = SCR_Math3D.GetFixedAxisVector(angErr) * (Math.DEG2RAD / inTimeSlice);
+				angularVel = SCR_Math3D.ClampMagnitude(angularVel, BGONE_MissileEngine_Base.MAX_ANGULAR_SPEED_RAD);
+				SetCurrentAngularVelocity(angularVel);
+			}
+			else
+			{
+				SetCurrentAngularVelocity(vector.Zero);
+			}
 		}
+
+		m_vLastKnownOrigin = curOrigin;
+		float distFromStart = vector.Distance(m_vLaunchOrigin, curOrigin);
+		if (distFromStart > m_fTravelDistanceMeters)
+			m_fTravelDistanceMeters = distFromStart;
 
 		UpdateStaticTelemetry();
 	}
@@ -677,7 +700,13 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		}
 
 		if (isFirstSync || snapped)
+		{
 			SetCurrentVelocity(velocity);
+			m_vLastProxyIntegratedOrigin = m_eOwner.GetOrigin();
+			m_bHasProxyIntegratedOrigin = true;
+			if (velocity.LengthSq() > 0.01)
+				m_eOwner.SetYawPitchRoll(velocity.VectorToAngles());
+		}
 
 		m_vSyncedPos = position;
 		m_vSyncedVel = velocity;

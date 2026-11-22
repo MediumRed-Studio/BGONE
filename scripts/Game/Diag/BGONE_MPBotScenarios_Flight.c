@@ -19,6 +19,7 @@ class BGONE_FlightBotConst
 	static const float MAX_PEAK_SPEED_MS = 260.0;
 	static const int MIN_PROXY_SYNC_COUNT = 3;
 	static const float MAX_CONVERGED_SYNC_ERR_M = 2.0;
+	static const int MAX_MIDFLIGHT_SNAPS = 10;
 	static const float MAX_SYNC_SEND_RATE_HZ = 35.0;
 }
 
@@ -717,6 +718,15 @@ class BGONE_BotBeat_VerifyProxyFlightAndDetonation : BGONE_BotBeat
 				"proxy dead-reckoning never converged below %1 m (role=%2 lastErr=%3 maxErr=%4 snaps=%5)",
 				BGONE_FlightBotConst.MAX_CONVERGED_SYNC_ERR_M, RoleLabel(),
 				m_fLastCliErr, m_fPeakCliMaxErr, m_iLastCliSnapCount);
+			return EBGONE_BotBeatState.FAIL;
+		}
+
+		if (m_iLastCliSnapCount > BGONE_FlightBotConst.MAX_MIDFLIGHT_SNAPS)
+		{
+			m_sDetail = string.Format(
+				"proxy required too many snap teleports (role=%1 snaps=%2 max=%3 syncs=%4 maxErr=%5)",
+				RoleLabel(), m_iLastCliSnapCount, BGONE_FlightBotConst.MAX_MIDFLIGHT_SNAPS,
+				m_iPeakCliSyncCount, m_fPeakCliMaxErr);
 			return EBGONE_BotBeatState.FAIL;
 		}
 
