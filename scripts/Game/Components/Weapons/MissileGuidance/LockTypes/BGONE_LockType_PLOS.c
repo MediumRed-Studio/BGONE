@@ -129,7 +129,7 @@ class BGONE_LockType_PLOS : BGONE_LockType_Base
 	{
 		super.LockLost();
 		m_bHasInitialSample = false;
-		m_cTargetDataPLOS = null;
+		m_cTargetDataPLOS = new BGONE_TargetData();
 	}
 
 	//------------------------------------------------------------------------------------------------
