@@ -275,6 +275,78 @@ class BGONE_BotBeat_AimRelativeOffset : BGONE_BotBeat
 }
 
 //------------------------------------------------------------------------------------------------
+//! Moves the observer laterally clear of the shooter's firing line and backblast cone before
+//! signaling ready.
+class BGONE_BotBeat_WalkClearOfFiringLine : BGONE_BotBeat
+{
+	protected vector m_vStartPos;
+	protected bool m_bStartSet;
+	protected float m_fMinDistMeters;
+
+	//------------------------------------------------------------------------------------------------
+	void BGONE_BotBeat_WalkClearOfFiringLine(string beatName, float minDistMeters, int timeoutMs)
+	{
+		Setup(beatName, timeoutMs);
+		SetFailSay("Observer failed to walk clear of the shooter's firing lane and backblast cone.");
+		if (minDistMeters <= 0.0)
+			m_fMinDistMeters = 8.0;
+		else
+			m_fMinDistMeters = minDistMeters;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override void OnStart(BGONE_BotRun run)
+	{
+		m_bStartSet = false;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override EBGONE_BotBeatState Tick(BGONE_BotRun run, int elapsedMs)
+	{
+		ChimeraCharacter ch = run.Character();
+		SCR_CharacterControllerComponent ctrl = run.CharacterController();
+		if (!ch || !ctrl)
+		{
+			BGONE_BotInput.Release("CharacterForward");
+			m_sDetail = "no controlled character";
+			return EBGONE_BotBeatState.FAIL;
+		}
+
+		if (!m_bStartSet)
+		{
+			m_vStartPos = ch.GetOrigin();
+			m_bStartSet = true;
+		}
+
+		float moved = BGONE_BotMath.FlatDistance(m_vStartPos, ch.GetOrigin());
+		if (moved >= m_fMinDistMeters)
+		{
+			BGONE_BotInput.Release("CharacterForward");
+			m_sDetail = string.Format("observer moved %1 m clear of shooter", moved);
+			return EBGONE_BotBeatState.PASS;
+		}
+
+		// Face North (+Z, yaw 0) perpendicular to the shooter's West (-X) firing corridor and walk clear.
+		ctrl.SetHeadingAngle(0.0, true);
+		BGONE_BotInput.Hold("CharacterForward", 1.0);
+		return EBGONE_BotBeatState.RUNNING;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override string TimeoutDetail(BGONE_BotRun run)
+	{
+		BGONE_BotInput.Release("CharacterForward");
+		float moved = 0.0;
+		ChimeraCharacter ch = run.Character();
+		if (ch && m_bStartSet)
+			moved = BGONE_BotMath.FlatDistance(m_vStartPos, ch.GetOrigin());
+
+		return string.Format("observer clearance walk timed out after %1 ms (moved=%2 m / %3 m)",
+			m_iTimeoutMs, moved, m_fMinDistMeters);
+	}
+}
+
+//------------------------------------------------------------------------------------------------
 //! Synchronizes Client 1 (shooter) and Client 2 (remote observer) via server barrier query so
 //! the observer is deployed and watching before the shooter launches.
 class BGONE_BotBeat_FlightSyncBarrier : BGONE_BotBeat
@@ -790,7 +862,7 @@ modded class SCR_PlayerController : PlayerController
 			run.Add(new BGONE_BotBeat_WaitDeployed("wait_deployed", 30000));
 			run.Add(new BGONE_BotBeat_PickupAndEquipLauncher("pickup_and_equip_plos", 20000));
 			run.Add(new BGONE_BotBeat_FlightSyncBarrier("wait_observer_ready", 90000));
-			run.Add(new BGONE_BotBeat_AimRelativeOffset("aim_clear_corridor", Vector(0, 40, 100), 6.0, 12000));
+			run.Add(new BGONE_BotBeat_AimRelativeOffset("aim_clear_corridor", Vector(-100, 45, 0), 6.0, 12000));
 			run.Add(new BGONE_BotBeat_FireFlightMissile("fire_plos_missile", 15000));
 			run.Add(new BGONE_BotBeat_VerifyProxyFlightAndDetonation("verify_shooter_flight_sync", true, 30000));
 			return run;
@@ -799,7 +871,8 @@ modded class SCR_PlayerController : PlayerController
 		run.m_sTitle = "BGONE Missile Flight, 20 Hz Proxy Sync & Single-Shot Detonation (Observer)";
 		run.m_sSummary = "Verified remote observer received throttled proxy syncs for matching RplId, converged dead-reckoning (< 2.0m), and observed clean detonation.";
 		run.Add(new BGONE_BotBeat_WaitDeployed("wait_deployed", 30000));
-		run.Add(new BGONE_BotBeat_AimRelativeOffset("observer_aim_corridor", Vector(0, 25, 100), 8.0, 12000));
+		run.Add(new BGONE_BotBeat_WalkClearOfFiringLine("walk_clear_of_muzzle", 8.0, 15000));
+		run.Add(new BGONE_BotBeat_AimRelativeOffset("observer_aim_corridor", Vector(-100, 25, 0), 8.0, 12000));
 		run.Add(new BGONE_BotBeat_FlightSyncBarrier("signal_observer_ready", 90000));
 		run.Add(new BGONE_BotBeat_VerifyProxyFlightAndDetonation("verify_observer_flight_sync", false, 45000));
 		return run;

@@ -50,9 +50,6 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	protected vector m_vSyncedPos = vector.Zero;
 	protected vector m_vSyncedVel = vector.Zero;
 	protected float m_fProxySyncAge = 0.0;
-	protected bool m_bHasProxyIntegratedOrigin = false;
-	protected vector m_vLastProxyIntegratedOrigin = vector.Zero;
-	protected vector m_vLastProxyVelocity = vector.Zero;
 	protected int m_iProxyFrameTicks = 0;
 	protected int m_iSyncReceiveCount = 0;
 	protected float m_fLastSyncErrorMeters = 0.0;
@@ -608,25 +605,15 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 
 		vector targetProxyPos = m_vSyncedPos + m_vSyncedVel * clampedAge;
 		vector curOrigin = m_eOwner.GetOrigin();
-		bool engineAdvanced = false;
-		if (m_bHasProxyIntegratedOrigin && m_vLastProxyVelocity.LengthSq() > 0.01)
-		{
-			vector expectedStep = m_vLastProxyVelocity * inTimeSlice;
-			vector actualStep = curOrigin - m_vLastProxyIntegratedOrigin;
-			if (actualStep.LengthSq() > 0.25 * expectedStep.LengthSq() && vector.Dot(actualStep, expectedStep) > 0.0)
-				engineAdvanced = true;
-		}
 
 		vector feedForwardVel = m_vSyncedVel;
 		if (staleSync)
 			feedForwardVel = vector.Zero;
 
-		// In kinematic fallback mode curOrigin is at t while targetProxyPos is at t + inTimeSlice;
-		// compare at the same integration time so constant-velocity flight has zero false lead error.
-		vector referenceOrigin = curOrigin;
-		if (!engineAdvanced)
-			referenceOrigin = curOrigin + feedForwardVel * inTimeSlice;
-
+		// EOnFrame runs before native MissileMoveComponent integrates this frame's velocity, so
+		// curOrigin is at t while targetProxyPos is at t + inTimeSlice. Compare at t + inTimeSlice
+		// and let MissileMoveComponent integrate desiredVel once (never double-integrate via SetOrigin).
+		vector referenceOrigin = curOrigin + feedForwardVel * inTimeSlice;
 		vector posError = targetProxyPos - referenceOrigin;
 		float effectiveGain = PROXY_CORRECTION_GAIN;
 		float maxSafeGain = 0.5 / inTimeSlice;
@@ -637,40 +624,20 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		vector desiredVel = feedForwardVel + correctionVel;
 
 		SetCurrentVelocity(desiredVel);
-		m_vLastProxyVelocity = desiredVel;
 		m_fLastSpeed = desiredVel.Length();
 
-		if (!engineAdvanced)
+		if (desiredVel.LengthSq() > 0.01)
 		{
-			vector nextOrigin = curOrigin + desiredVel * inTimeSlice;
-			m_eOwner.SetOrigin(nextOrigin);
-			curOrigin = nextOrigin;
-			m_vLastProxyIntegratedOrigin = curOrigin;
-			m_bHasProxyIntegratedOrigin = true;
-
-			if (desiredVel.LengthSq() > 0.01)
-				m_eOwner.SetYawPitchRoll(desiredVel.VectorToAngles());
-			else
-				SetCurrentAngularVelocity(vector.Zero);
+			vector desiredAngles = desiredVel.VectorToAngles();
+			vector curAngles = m_eOwner.GetYawPitchRoll();
+			vector angErr = SCR_Math3D.FixEulerVector180(desiredAngles - curAngles);
+			vector angularVel = SCR_Math3D.GetFixedAxisVector(angErr) * (Math.DEG2RAD / inTimeSlice);
+			angularVel = SCR_Math3D.ClampMagnitude(angularVel, BGONE_MissileEngine_Base.MAX_ANGULAR_SPEED_RAD);
+			SetCurrentAngularVelocity(angularVel);
 		}
 		else
 		{
-			m_vLastProxyIntegratedOrigin = curOrigin;
-			m_bHasProxyIntegratedOrigin = true;
-
-			if (desiredVel.LengthSq() > 0.01)
-			{
-				vector desiredAngles = desiredVel.VectorToAngles();
-				vector curAngles = m_eOwner.GetYawPitchRoll();
-				vector angErr = SCR_Math3D.FixEulerVector180(desiredAngles - curAngles);
-				vector angularVel = SCR_Math3D.GetFixedAxisVector(angErr) * (Math.DEG2RAD / inTimeSlice);
-				angularVel = SCR_Math3D.ClampMagnitude(angularVel, BGONE_MissileEngine_Base.MAX_ANGULAR_SPEED_RAD);
-				SetCurrentAngularVelocity(angularVel);
-			}
-			else
-			{
-				SetCurrentAngularVelocity(vector.Zero);
-			}
+			SetCurrentAngularVelocity(vector.Zero);
 		}
 
 		m_vLastKnownOrigin = curOrigin;
@@ -733,9 +700,6 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		if (isFirstSync || snapped)
 		{
 			SetCurrentVelocity(velocity);
-			m_vLastProxyVelocity = velocity;
-			m_vLastProxyIntegratedOrigin = m_eOwner.GetOrigin();
-			m_bHasProxyIntegratedOrigin = true;
 			if (velocity.LengthSq() > 0.01)
 				m_eOwner.SetYawPitchRoll(velocity.VectorToAngles());
 		}
