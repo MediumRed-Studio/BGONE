@@ -592,14 +592,10 @@ class BGONE_BotBeat_TurretAdsAndLock : BGONE_BotBeat
 		if (!turretCtrl.GetWeaponADSEnabled())
 			turretCtrl.SetWeaponADSEnabled(true);
 
-		if (!adsBefore)
+		if (!m_bAdsInputSent && !adsBefore)
 		{
-			turretCtrl.SetWeaponADS(true);
-			if (!m_bAdsInputSent && elapsedMs >= 300)
-			{
-				turretCtrl.SetWeaponADSInput(true);
-				m_bAdsInputSent = true;
-			}
+			turretCtrl.SetWeaponADSInput(true);
+			m_bAdsInputSent = true;
 		}
 
 		if (!turretCtrl.IsWeaponADS())
