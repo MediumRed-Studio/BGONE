@@ -617,17 +617,23 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 				engineAdvanced = true;
 		}
 
-		vector posError = targetProxyPos - curOrigin;
+		vector feedForwardVel = m_vSyncedVel;
+		if (staleSync)
+			feedForwardVel = vector.Zero;
+
+		// In kinematic fallback mode curOrigin is at t while targetProxyPos is at t + inTimeSlice;
+		// compare at the same integration time so constant-velocity flight has zero false lead error.
+		vector referenceOrigin = curOrigin;
+		if (!engineAdvanced)
+			referenceOrigin = curOrigin + feedForwardVel * inTimeSlice;
+
+		vector posError = targetProxyPos - referenceOrigin;
 		float effectiveGain = PROXY_CORRECTION_GAIN;
 		float maxSafeGain = 0.5 / inTimeSlice;
 		if (effectiveGain > maxSafeGain)
 			effectiveGain = maxSafeGain;
 
 		vector correctionVel = SCR_Math3D.ClampMagnitude(posError * effectiveGain, PROXY_MAX_CORRECTION_SPEED);
-		vector feedForwardVel = m_vSyncedVel;
-		if (staleSync)
-			feedForwardVel = vector.Zero;
-
 		vector desiredVel = feedForwardVel + correctionVel;
 
 		SetCurrentVelocity(desiredVel);
