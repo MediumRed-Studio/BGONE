@@ -715,18 +715,20 @@ class BGONE_BotBeat_VerifyProxyFlightAndDetonation : BGONE_BotBeat
 		if (!m_bObservedConvergedSync)
 		{
 			m_sDetail = string.Format(
-				"proxy dead-reckoning never converged below %1 m (role=%2 lastErr=%3 maxErr=%4 snaps=%5)",
+				"proxy dead-reckoning never converged below %1 m (role=%2 lastErr=%3 maxErr=%4 snaps=%5 ticks=%6)",
 				BGONE_FlightBotConst.MAX_CONVERGED_SYNC_ERR_M, RoleLabel(),
-				m_fLastCliErr, m_fPeakCliMaxErr, m_iLastCliSnapCount);
+				m_fLastCliErr, m_fPeakCliMaxErr, m_iLastCliSnapCount,
+				BGONE_GuidedMissileComponent.GetLastTrackedProxyFrameTicks());
 			return EBGONE_BotBeatState.FAIL;
 		}
 
 		if (m_iLastCliSnapCount > BGONE_FlightBotConst.MAX_MIDFLIGHT_SNAPS)
 		{
 			m_sDetail = string.Format(
-				"proxy required too many snap teleports (role=%1 snaps=%2 max=%3 syncs=%4 maxErr=%5)",
+				"proxy required too many snap teleports (role=%1 snaps=%2 max=%3 syncs=%4 maxErr=%5 ticks=%6)",
 				RoleLabel(), m_iLastCliSnapCount, BGONE_FlightBotConst.MAX_MIDFLIGHT_SNAPS,
-				m_iPeakCliSyncCount, m_fPeakCliMaxErr);
+				m_iPeakCliSyncCount, m_fPeakCliMaxErr,
+				BGONE_GuidedMissileComponent.GetLastTrackedProxyFrameTicks());
 			return EBGONE_BotBeatState.FAIL;
 		}
 
@@ -747,9 +749,10 @@ class BGONE_BotBeat_VerifyProxyFlightAndDetonation : BGONE_BotBeat
 			RoleLabel(), m_sServerRpl, m_fPeakSrvFlightTime, m_fPeakSrvDist,
 			m_fPeakSrvSpeed, m_iLastSrvSends, sendRateHz));
 		run.LogTelemetry(string.Format(
-			"role=%1 syncCount=%2 bestSyncErr=%3 lastSyncErr=%4 maxSyncErr=%5 snapCount=%6 srvDet=%7 cliDet=%8",
+			"role=%1 syncCount=%2 bestSyncErr=%3 lastSyncErr=%4 maxSyncErr=%5 snapCount=%6 proxyTicks=%7 srvDet=%8 cliDet=%9",
 			RoleLabel(), m_iPeakCliSyncCount, m_fBestConvergedErr, m_fLastCliErr,
-			m_fPeakCliMaxErr, m_iLastCliSnapCount, m_iLastSrvDetCount, cliDetFlag));
+			m_fPeakCliMaxErr, m_iLastCliSnapCount, BGONE_GuidedMissileComponent.GetLastTrackedProxyFrameTicks(),
+			m_iLastSrvDetCount, cliDetFlag));
 
 		m_sDetail = string.Format(
 			"role=%1 rpl=%2 flight=%3s dist=%4m speed=%5m/s syncs=%6 err=%7m det=%8",

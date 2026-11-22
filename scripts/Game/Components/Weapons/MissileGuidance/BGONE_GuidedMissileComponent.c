@@ -52,6 +52,8 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	protected float m_fProxySyncAge = 0.0;
 	protected bool m_bHasProxyIntegratedOrigin = false;
 	protected vector m_vLastProxyIntegratedOrigin = vector.Zero;
+	protected vector m_vLastProxyVelocity = vector.Zero;
+	protected int m_iProxyFrameTicks = 0;
 	protected int m_iSyncReceiveCount = 0;
 	protected float m_fLastSyncErrorMeters = 0.0;
 	protected float m_fMaxSyncErrorMeters = 0.0;
@@ -86,6 +88,7 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	protected static float s_fLastSyncErrorMeters;
 	protected static float s_fLastMaxSyncErrorMeters;
 	protected static int s_iLastSnapCorrectionCount;
+	protected static int s_iLastProxyFrameTicks;
 	protected static vector s_vLastOrigin;
 
 	//------------------------------------------------------------------------------------------------
@@ -377,6 +380,7 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		s_fLastSyncErrorMeters = m_fLastSyncErrorMeters;
 		s_fLastMaxSyncErrorMeters = m_fMaxSyncErrorMeters;
 		s_iLastSnapCorrectionCount = m_iSnapCorrectionCount;
+		s_iLastProxyFrameTicks = m_iProxyFrameTicks;
 		s_vLastOrigin = m_vLastKnownOrigin;
 	}
 
@@ -439,7 +443,10 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		m_fLastSpeed = GetCurrentVelocity().Length();
 		m_bGuidanceActive = true;
 
-		// Pre-loaded tube rounds (M72A3-based) require EntityEvent.FRAME set explicitly on launch.
+		// Pre-loaded tube rounds (M72A3-based) require EntityFlags.ACTIVE + EntityEvent.FRAME explicitly on launch.
+		m_eOwner.SetFlags(EntityFlags.ACTIVE, false);
+		if (!IsActive())
+			Activate(m_eOwner);
 		SetEventMask(m_eOwner, EntityEvent.INIT | EntityEvent.FRAME);
 		RegisterAsLastTracked();
 
@@ -590,6 +597,7 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 			return;
 		}
 
+		m_iProxyFrameTicks = m_iProxyFrameTicks + 1;
 		m_fFlightTime = m_fFlightTime + inTimeSlice;
 		m_fProxySyncAge = m_fProxySyncAge + inTimeSlice;
 
@@ -600,8 +608,14 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 
 		vector targetProxyPos = m_vSyncedPos + m_vSyncedVel * clampedAge;
 		vector curOrigin = m_eOwner.GetOrigin();
-		bool engineAdvanced = m_bHasProxyIntegratedOrigin
-			&& (vector.DistanceSq(curOrigin, m_vLastProxyIntegratedOrigin) > 0.0001);
+		bool engineAdvanced = false;
+		if (m_bHasProxyIntegratedOrigin && m_vLastProxyVelocity.LengthSq() > 0.01)
+		{
+			vector expectedStep = m_vLastProxyVelocity * inTimeSlice;
+			vector actualStep = curOrigin - m_vLastProxyIntegratedOrigin;
+			if (actualStep.LengthSq() > 0.25 * expectedStep.LengthSq() && vector.Dot(actualStep, expectedStep) > 0.0)
+				engineAdvanced = true;
+		}
 
 		vector posError = targetProxyPos - curOrigin;
 		float effectiveGain = PROXY_CORRECTION_GAIN;
@@ -617,6 +631,7 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		vector desiredVel = feedForwardVel + correctionVel;
 
 		SetCurrentVelocity(desiredVel);
+		m_vLastProxyVelocity = desiredVel;
 		m_fLastSpeed = desiredVel.Length();
 
 		if (!engineAdvanced)
@@ -676,10 +691,20 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		bool isFirstSync = !m_bHasProxySync;
 		if (isFirstSync)
 		{
-			SetEventMask(m_eOwner, EntityEvent.INIT | EntityEvent.FRAME);
 			m_vLaunchOrigin = position;
 			RegisterAsLastTracked();
 		}
+
+		// Replicated proxy projectiles spawned inside a launcher start inactive; wake entity + component
+		// so EOnFrame dead-reckoning ticks smoothly between 20 Hz updates.
+		if ((m_eOwner.GetFlags() & EntityFlags.ACTIVE) == 0)
+			m_eOwner.SetFlags(EntityFlags.ACTIVE, false);
+
+		if (!IsActive())
+			Activate(m_eOwner);
+
+		if ((GetEventMask() & EntityEvent.FRAME) == 0)
+			SetEventMask(m_eOwner, EntityEvent.INIT | EntityEvent.FRAME);
 
 		vector curOrigin = m_eOwner.GetOrigin();
 		float distSq = vector.DistanceSq(curOrigin, position);
@@ -702,6 +727,7 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		if (isFirstSync || snapped)
 		{
 			SetCurrentVelocity(velocity);
+			m_vLastProxyVelocity = velocity;
 			m_vLastProxyIntegratedOrigin = m_eOwner.GetOrigin();
 			m_bHasProxyIntegratedOrigin = true;
 			if (velocity.LengthSq() > 0.01)
@@ -867,6 +893,7 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	float GetLastSyncErrorMeters() { return m_fLastSyncErrorMeters; }
 	float GetMaxSyncErrorMeters() { return m_fMaxSyncErrorMeters; }
 	int GetSnapCorrectionCount() { return m_iSnapCorrectionCount; }
+	int GetProxyFrameTicks() { return m_iProxyFrameTicks; }
 	vector GetLastKnownOrigin() { return m_vLastKnownOrigin; }
 
 	//------------------------------------------------------------------------------------------------
@@ -893,6 +920,7 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	static float GetLastTrackedSyncErrorMeters() { return s_fLastSyncErrorMeters; }
 	static float GetLastTrackedMaxSyncErrorMeters() { return s_fLastMaxSyncErrorMeters; }
 	static int GetLastTrackedSnapCorrectionCount() { return s_iLastSnapCorrectionCount; }
+	static int GetLastTrackedProxyFrameTicks() { return s_iLastProxyFrameTicks; }
 	static vector GetLastTrackedOrigin() { return s_vLastOrigin; }
 
 	//------------------------------------------------------------------------------------------------
@@ -921,6 +949,7 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		s_fLastSyncErrorMeters = 0.0;
 		s_fLastMaxSyncErrorMeters = 0.0;
 		s_iLastSnapCorrectionCount = 0;
+		s_iLastProxyFrameTicks = 0;
 		s_vLastOrigin = vector.Zero;
 	}
 
