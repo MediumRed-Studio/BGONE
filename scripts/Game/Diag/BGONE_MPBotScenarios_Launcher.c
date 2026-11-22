@@ -633,8 +633,8 @@ class BGONE_BotBeat_TurretAdsAndLock : BGONE_BotBeat
 			}
 
 			m_sDetail = string.Format(
-				"turret launcher IsLocking() became false while in turret ADS (t=%1/%2 adsBefore=%3 isAds=%4 adsIn=%5 ctx=%6 bound=%7 wep=%8)",
-				elapsedMs, m_iLockStartMs, adsBefore, turretCtrl.IsWeaponADS(), turretCtrl.GetWeaponADSInput(),
+				"turret launcher IsLocking() became false while in turret ADS (t=%1/%2 adsBefore=%3 isAds=%4 ctx=%5 bound=%6 wep=%7)",
+				elapsedMs, m_iLockStartMs, adsBefore, turretCtrl.IsWeaponADS(),
 				inputMgr.IsContextActive(BGONE_BotLauncherHelper.LAUNCHER_INPUT_CONTEXT),
 				launcher.IsLauncherBound(), string.Format("%1:%2", curWepClass, wepOwnerMatches));
 			return EBGONE_BotBeatState.FAIL;

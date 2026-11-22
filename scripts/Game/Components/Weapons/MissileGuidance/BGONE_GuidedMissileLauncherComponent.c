@@ -27,11 +27,14 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	protected TurretControllerComponent m_eTurretController;
 	protected bool locking;
 
+	static const float ADS_DROP_GRACE_SEC = 0.15;
+
 	protected bool m_bListenersRegistered;
 	protected bool m_bInputListenersRegistered;
 	protected bool m_bTurretHandlersRegistered;
 	protected ResourceName m_sLastInspectedAmmoTemplate;
 	protected BaseMagazineComponent m_LastInspectedMagazine;
+	protected float m_fAdsDropTimer;
 
 	protected ref BGONE_TargetData m_eLastTargetData;
 	protected BGONE_GuidedMissileComponent m_eLastMissile;
@@ -394,6 +397,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	protected void StopLockInternal()
 	{
 		locking = false;
+		m_fAdsDropTimer = 0.0;
 		if (m_eLockTypeComponent)
 		{
 			m_eLockTypeComponent.StopLock();
@@ -428,6 +432,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 
 		if (!IsLocallyOwned() || !IsLocalPlayerControlled() || !m_eCurrentPlayer || !m_eLockTypeComponent)
 		{
+			m_fAdsDropTimer = 0.0;
 			if (locking)
 			{
 				locking = false;
@@ -472,8 +477,9 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			}
 		}
 
-		if (!m_eventHandler || !isLauncherAds)
+		if (!m_eventHandler)
 		{
+			m_fAdsDropTimer = 0.0;
 			if (locking)
 			{
 				locking = false;
@@ -481,6 +487,29 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			}
 			return;
 		}
+
+		if (!isLauncherAds)
+		{
+			if (locking)
+			{
+				// Tolerate transient 1-frame ADS flickers during turret/camera blends or MP reconciliation,
+				// while stopping cleanly on real ADS exit. Dismount/unequip still clears immediately.
+				m_fAdsDropTimer = m_fAdsDropTimer + timeSlice;
+				if (m_fAdsDropTimer >= ADS_DROP_GRACE_SEC)
+				{
+					locking = false;
+					m_fAdsDropTimer = 0.0;
+					m_eLockTypeComponent.StopLock();
+				}
+			}
+			else
+			{
+				m_fAdsDropTimer = 0.0;
+			}
+			return;
+		}
+
+		m_fAdsDropTimer = 0.0;
 
 		if (!m_InputManager)
 			m_InputManager = GetGame().GetInputManager();
@@ -503,6 +532,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		if (!IsLocallyOwned() || !m_eLockTypeComponent)
 			return;
 
+		m_fAdsDropTimer = 0.0;
 		locking = active;
 		if (locking)
 			m_eLockTypeComponent.StartLock();
