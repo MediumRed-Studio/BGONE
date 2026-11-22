@@ -402,6 +402,22 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	}
 
 	//------------------------------------------------------------------------------------------------
+	protected bool DoesWeaponMatchOwner(BaseWeaponComponent weapon)
+	{
+		if (!weapon || !m_eOwner)
+			return false;
+
+		if (weapon.GetOwner() == m_eOwner)
+			return true;
+
+		WeaponSlotComponent slot = WeaponSlotComponent.Cast(weapon);
+		if (slot && slot.GetWeaponEntity() == m_eOwner)
+			return true;
+
+		return false;
+	}
+
+	//------------------------------------------------------------------------------------------------
 	override void EOnFrame(IEntity owner, float timeSlice)
 	{
 		if (!m_eOwner)
@@ -424,7 +440,10 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		bool isLauncherAds = false;
 		if (m_eTurretController)
 		{
-			if (m_eTurretController.IsWeaponADS())
+			bool turretAds = m_eTurretController.IsWeaponADS()
+				|| m_eTurretController.GetCurrentSightsADS()
+				|| (m_WeaponComponent && m_WeaponComponent.IsSightADSActive());
+			if (turretAds)
 			{
 				BaseWeaponManagerComponent turretWeaponMgr = m_eTurretController.GetWeaponManager();
 				if (!turretWeaponMgr)
@@ -434,7 +453,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 				else
 				{
 					BaseWeaponComponent turretWeapon = turretWeaponMgr.GetCurrentWeapon();
-					if (!turretWeapon || turretWeapon.GetOwner() == m_eOwner)
+					if (!turretWeapon || DoesWeaponMatchOwner(turretWeapon))
 						isLauncherAds = true;
 				}
 			}
@@ -445,7 +464,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			if (weaponMgr)
 			{
 				BaseWeaponComponent weaponComp = weaponMgr.GetCurrentWeapon();
-				if (weaponComp && weaponComp.GetOwner() == m_eOwner)
+				if (DoesWeaponMatchOwner(weaponComp))
 				{
 					CharacterControllerComponent charCtrl = m_eCurrentPlayer.GetCharacterController();
 					isLauncherAds = weaponComp.IsSightADSActive() || (charCtrl && charCtrl.IsWeaponADS());
@@ -524,7 +543,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 		if (!m_RplComponent || m_RplComponent.IsRemoteProxy() || !entity)
 			return;
 
-		if (weapon && weapon.GetOwner() != m_eOwner)
+		if (weapon && !DoesWeaponMatchOwner(weapon))
 			return;
 
 		m_eLastMissile = BGONE_GuidedMissileComponent.Cast(entity.FindComponent(BGONE_GuidedMissileComponent));

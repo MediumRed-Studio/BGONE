@@ -610,7 +610,16 @@ class BGONE_BotBeat_TurretAdsAndLock : BGONE_BotBeat
 
 		if (!launcher.IsLocking())
 		{
-			m_sDetail = "turret launcher IsLocking() became false while in turret ADS";
+			BaseWeaponManagerComponent tMgr = turretCtrl.GetWeaponManager();
+			string curWepClass = "none";
+			if (tMgr && tMgr.GetCurrentWeapon())
+				curWepClass = tMgr.GetCurrentWeapon().ClassName();
+
+			m_sDetail = string.Format(
+				"turret launcher IsLocking() became false while in turret ADS (elapsed=%1 lockStart=%2 isAds=%3 sightsAds=%4 ctx=%5 bound=%6 curWep=%7)",
+				elapsedMs, m_iLockStartMs, turretCtrl.IsWeaponADS(), turretCtrl.GetCurrentSightsADS(),
+				inputMgr.IsContextActive(BGONE_BotLauncherHelper.LAUNCHER_INPUT_CONTEXT),
+				launcher.IsLauncherBound(), curWepClass);
 			return EBGONE_BotBeatState.FAIL;
 		}
 
