@@ -1,22 +1,34 @@
 [BaseContainerProps()]
 class BGONE_AttackProfile_PLOS : BGONE_AttackProfile_Base
 {
+	//------------------------------------------------------------------------------------------------
 	void BGONE_AttackProfile_PLOS()
 	{
 		m_cProfileName = "Direct Attack";
 	}
-	
+
+	//------------------------------------------------------------------------------------------------
 	override BGONE_TargetData ProcessFrame(BGONE_TargetData targetData, float flightTime)
 	{
-		float m_fNewYaw = targetData.launchDir.ToYaw() + (targetData.yawChange * flightTime);
-		float m_fNewPitch = targetData.launchDir.VectorToAngles()[1] + (targetData.pitchChange * flightTime);
-		
-		vector newTargetDirection = Vector(m_fNewYaw,m_fNewPitch,0).AnglesToVector();
-		vector m_vTargetPos = targetData.launchPos + (newTargetDirection * (GetDistanceFromLaunch(targetData) + 10));
-			
-		targetData.targetPosition = m_vTargetPos;
-		
+		if (!m_eProjectile || !targetData)
+			return targetData;
+
+		vector launchDir = targetData.launchDir;
+		if (launchDir.LengthSq() < 0.0001)
+		{
+			launchDir = m_eProjectile.GetWorldTransformAxis(2);
+			if (launchDir.LengthSq() < 0.0001)
+				return targetData;
+		}
+
+		vector baseAngles = launchDir.VectorToAngles();
+		float newYaw = baseAngles[0] + (targetData.yawChange * flightTime);
+		float newPitch = Math.Clamp(baseAngles[1] + (targetData.pitchChange * flightTime), -85.0, 85.0);
+
+		vector newTargetDirection = Vector(newYaw, newPitch, 0.0).AnglesToVector();
+		vector targetPos = targetData.launchPos + (newTargetDirection * (GetDistanceFromLaunch(targetData) + 10.0));
+
+		targetData.targetPosition = targetPos;
 		return targetData;
-	}		
-	
+	}
 };

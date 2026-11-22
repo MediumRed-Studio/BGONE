@@ -80,6 +80,29 @@ class BGONE_LockType_Base : ScriptAndConfig
 		m_bIsLocking = false;
 		return;
 	}
+
+	void OnCleanup()
+	{
+		StopLock();
+	}
+
+	bool IsLocking()
+	{
+		return m_bIsLocking;
+	}
+
+	float GetLockingProgress()
+	{
+		if (!m_eLockingData)
+			return 0.0;
+
+		return m_eLockingData.lockingProgress;
+	}
+
+	IEntity GetLockedTargetEntity()
+	{
+		return null;
+	}
 	
 	BGONE_TargetData GetCurrentTargetData()
 	{
