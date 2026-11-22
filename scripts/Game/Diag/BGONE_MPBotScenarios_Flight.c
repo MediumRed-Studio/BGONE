@@ -802,7 +802,7 @@ modded class SCR_PlayerController : PlayerController
 		if (clientIdx == 1)
 		{
 			BGONE_FlightBotCoordinator.OnClient1Staged();
-			return BGONE_StageLauncherEntity(
+			return BGONE_StageFlightLauncher(
 				scenarioName,
 				BGONE_FlightBotConst.PREFAB_LAUNCHER_PLOS,
 				character,
@@ -816,6 +816,75 @@ modded class SCR_PlayerController : PlayerController
 		fixtureId = RplId.Invalid();
 		fixturePos = character.GetOrigin();
 		detail = string.Format("observer client %1 ready at %2", clientIdx, fixturePos);
+		return 0;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected int BGONE_StageFlightLauncher(
+		string scenarioName,
+		ResourceName prefab,
+		IEntity character,
+		float forwardDist,
+		float heightOffset,
+		out RplId fixtureId,
+		out vector fixturePos,
+		out string detail)
+	{
+		fixtureId = RplId.Invalid();
+		fixturePos = vector.Zero;
+
+		if (!character)
+		{
+			detail = "no character to stage near";
+			return 10;
+		}
+
+		Resource res = Resource.Load(prefab);
+		if (!res || !res.IsValid())
+		{
+			detail = string.Format("failed to load prefab %1", prefab);
+			return 11;
+		}
+
+		BaseWorld world = GetGame().GetWorld();
+		if (!world)
+		{
+			detail = "no active world";
+			return 12;
+		}
+
+		vector fwd = character.GetWorldTransformAxis(2);
+		fwd[1] = 0;
+		if (fwd.LengthSq() < 0.001)
+			fwd = Vector(0, 0, 1);
+		else
+			fwd.Normalize();
+
+		vector origin = character.GetOrigin() + fwd * forwardDist;
+		origin[1] = world.GetSurfaceY(origin[0], origin[2]) + heightOffset;
+
+		EntitySpawnParams params = new EntitySpawnParams();
+		params.TransformMode = ETransformMode.WORLD;
+		Math3D.MatrixIdentity4(params.Transform);
+		params.Transform[3] = origin;
+
+		IEntity spawned = GetGame().SpawnEntityPrefab(res, world, params);
+		if (!spawned)
+		{
+			detail = string.Format("failed to spawn %1 at %2", prefab, origin);
+			return 13;
+		}
+
+		BGONE_BotSpawnLedger.Add(spawned, scenarioName);
+		m_BGONE_ServerStagedEntityId = spawned.GetID();
+		m_vBGONE_ServerStartPos = character.GetOrigin();
+		fixturePos = spawned.GetOrigin();
+
+		RplComponent rpl = RplComponent.Cast(spawned.FindComponent(RplComponent));
+		if (rpl && rpl.Id().IsValid())
+			fixtureId = rpl.Id();
+
+		detail = string.Format("staged %1 at %2", prefab, fixturePos);
 		return 0;
 	}
 

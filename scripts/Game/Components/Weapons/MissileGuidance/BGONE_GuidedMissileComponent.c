@@ -547,7 +547,14 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 			if (m_eMissileEngineComponent.ProcessFrame(m_eOwner, engineTargetPos, m_fFlightTime, timeSlice))
 			{
 				m_eCurrentTargetData.detonated = 1;
-				DetonateServer(false);
+				BGONE_TargetData resolvedDet = m_eSeekerTypeComponent.ProcessFrame(m_eCurrentTargetData, m_fFlightTime);
+				if (resolvedDet)
+					m_eCurrentTargetData = resolvedDet;
+
+				if (m_eCurrentTargetData.detonated <= 0)
+					m_eCurrentTargetData.detonated = 1;
+
+				DetonateServer(m_eCurrentTargetData.detonated == 2);
 				return;
 			}
 		}
@@ -584,7 +591,11 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		m_fFlightTime = m_fFlightTime + inTimeSlice;
 		m_fProxySyncAge = m_fProxySyncAge + inTimeSlice;
 
-		float clampedAge = Math.Min(m_fProxySyncAge, PROXY_MAX_EXTRAPOLATION_SEC);
+		bool staleSync = m_fProxySyncAge >= PROXY_MAX_EXTRAPOLATION_SEC;
+		float clampedAge = m_fProxySyncAge;
+		if (staleSync)
+			clampedAge = PROXY_MAX_EXTRAPOLATION_SEC;
+
 		vector targetProxyPos = m_vSyncedPos + m_vSyncedVel * clampedAge;
 		vector curOrigin = m_eOwner.GetOrigin();
 		m_vLastKnownOrigin = curOrigin;
@@ -600,7 +611,11 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 			effectiveGain = maxSafeGain;
 
 		vector correctionVel = SCR_Math3D.ClampMagnitude(posError * effectiveGain, PROXY_MAX_CORRECTION_SPEED);
-		vector desiredVel = m_vSyncedVel + correctionVel;
+		vector feedForwardVel = m_vSyncedVel;
+		if (staleSync)
+			feedForwardVel = vector.Zero;
+
+		vector desiredVel = feedForwardVel + correctionVel;
 
 		SetCurrentVelocity(desiredVel);
 		m_fLastSpeed = desiredVel.Length();
@@ -613,6 +628,10 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 			vector angularVel = SCR_Math3D.GetFixedAxisVector(angErr) * (Math.DEG2RAD / inTimeSlice);
 			angularVel = SCR_Math3D.ClampMagnitude(angularVel, BGONE_MissileEngine_Base.MAX_ANGULAR_SPEED_RAD);
 			SetCurrentAngularVelocity(angularVel);
+		}
+		else
+		{
+			SetCurrentAngularVelocity(vector.Zero);
 		}
 
 		UpdateStaticTelemetry();
