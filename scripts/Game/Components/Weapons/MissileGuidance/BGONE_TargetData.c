@@ -1,7 +1,7 @@
 class BGONE_TargetData : ScriptAndConfig
 {
-	RplId shooterRplId
-	RplId turretRplId
+	RplId shooterRplId;
+	RplId turretRplId;
 	int attackProfileIndex;
 	int armingDistancesIndex;
 	int detonated = 0;
@@ -14,30 +14,81 @@ class BGONE_TargetData : ScriptAndConfig
 	IEntity targetEntity;
 	SCR_ChimeraCharacter shooterEntity;
 	TurretControllerComponent turretEntity;
-	
+
+	void BGONE_TargetData()
+	{
+		shooterRplId = RplId.Invalid();
+		turretRplId = RplId.Invalid();
+		targetRplId = RplId.Invalid();
+	}
+
+	static RplId ResolveEntityRplId(IEntity entity)
+	{
+		if (!entity)
+			return RplId.Invalid();
+
+		IEntity cur = entity;
+		while (cur)
+		{
+			RplComponent rpl = RplComponent.Cast(cur.FindComponent(RplComponent));
+			if (rpl && rpl.Id().IsValid())
+				return rpl.Id();
+
+			cur = cur.GetParent();
+		}
+
+		return Replication.FindItemId(entity);
+	}
+
 	SCR_ChimeraCharacter GetShooterEntity()
 	{
-		if(!shooterEntity)
-			shooterEntity = SCR_ChimeraCharacter.Cast(Replication.FindItem(shooterRplId));
+		if (!shooterEntity && shooterRplId.IsValid())
+		{
+			Managed item = Replication.FindItem(shooterRplId);
+			RplComponent rpl = RplComponent.Cast(item);
+			if (rpl)
+				shooterEntity = SCR_ChimeraCharacter.Cast(rpl.GetEntity());
+			else
+				shooterEntity = SCR_ChimeraCharacter.Cast(item);
+		}
 		return shooterEntity;
 	}
+
 	IEntity GetTargetEntity()
 	{
-		if(!targetEntity)
-			targetEntity = IEntity.Cast(Replication.FindItem(targetRplId));
+		if (!targetEntity && targetRplId.IsValid())
+		{
+			Managed item = Replication.FindItem(targetRplId);
+			RplComponent rpl = RplComponent.Cast(item);
+			if (rpl)
+				targetEntity = rpl.GetEntity();
+			else
+				targetEntity = IEntity.Cast(item);
+		}
 		return targetEntity;
 	}
+
 	TurretControllerComponent GetTurretEntity()
 	{
-		if(!turretEntity)
-			turretEntity = TurretControllerComponent.Cast(Replication.FindItem(turretRplId));
+		if (!turretEntity && turretRplId.IsValid())
+		{
+			Managed item = Replication.FindItem(turretRplId);
+			turretEntity = TurretControllerComponent.Cast(item);
+			if (!turretEntity)
+			{
+				RplComponent rpl = RplComponent.Cast(item);
+				if (rpl && rpl.GetEntity())
+					turretEntity = TurretControllerComponent.Cast(rpl.GetEntity().FindComponent(TurretControllerComponent));
+			}
+		}
 		return turretEntity;
 	}
+
 	void DEBUG_PrintValues()
 	{
 		Print("----- Target Data Values ------");
-		Print("shooterRplId: " + shooterRplId);
-		Print("turretRplId: " + turretRplId);
+		Print("shooterRplId: " + shooterRplId.AsString());
+		Print("turretRplId: " + turretRplId.AsString());
 		Print("attackProfileMode: " + attackProfileIndex);
 		Print("armingDistance: " + armingDistancesIndex);
 		Print("detonated: " + detonated);
@@ -46,14 +97,14 @@ class BGONE_TargetData : ScriptAndConfig
 		Print("targetPosition: " + targetPosition);
 		Print("yawChange: " + yawChange);
 		Print("pitchChange: " + pitchChange);
-		Print("targetRplId: " + targetRplId);
+		Print("targetRplId: " + targetRplId.AsString());
 	}
-	
+
 	// Replication Methods
 	static bool Extract(BGONE_TargetData instance, ScriptCtx ctx, SSnapSerializerBase snapshot)
 	{
-		snapshot.SerializeInt(instance.shooterRplId);
-		snapshot.SerializeInt(instance.turretRplId);
+		snapshot.SerializeBytes(instance.shooterRplId, 4);
+		snapshot.SerializeBytes(instance.turretRplId, 4);
 		snapshot.SerializeInt(instance.attackProfileIndex);
 		snapshot.SerializeInt(instance.armingDistancesIndex);
 		snapshot.SerializeInt(instance.detonated);
@@ -62,14 +113,14 @@ class BGONE_TargetData : ScriptAndConfig
 		snapshot.SerializeVector(instance.targetPosition);
 		snapshot.SerializeFloat(instance.yawChange);
 		snapshot.SerializeFloat(instance.pitchChange);
-		snapshot.SerializeInt(instance.targetRplId);
+		snapshot.SerializeBytes(instance.targetRplId, 4);
 		return true;
 	}
 
 	static bool Inject(SSnapSerializerBase snapshot, ScriptCtx ctx, BGONE_TargetData instance)
 	{
-		snapshot.SerializeInt(instance.shooterRplId);
-		snapshot.SerializeInt(instance.turretRplId);
+		snapshot.SerializeBytes(instance.shooterRplId, 4);
+		snapshot.SerializeBytes(instance.turretRplId, 4);
 		snapshot.SerializeInt(instance.attackProfileIndex);
 		snapshot.SerializeInt(instance.armingDistancesIndex);
 		snapshot.SerializeInt(instance.detonated);
@@ -78,14 +129,20 @@ class BGONE_TargetData : ScriptAndConfig
 		snapshot.SerializeVector(instance.targetPosition);
 		snapshot.SerializeFloat(instance.yawChange);
 		snapshot.SerializeFloat(instance.pitchChange);
-		snapshot.SerializeInt(instance.targetRplId);
+		snapshot.SerializeBytes(instance.targetRplId, 4);
 		return true;
 	}
 
 	static void Encode(SSnapSerializerBase snapshot, ScriptCtx ctx, ScriptBitSerializer packet)
 	{
-		snapshot.EncodeInt(packet);
-		snapshot.EncodeInt(packet);
+		RplId shooterId;
+		snapshot.SerializeBytes(shooterId, 4);
+		packet.SerializeRplId(shooterId);
+
+		RplId turretId;
+		snapshot.SerializeBytes(turretId, 4);
+		packet.SerializeRplId(turretId);
+
 		snapshot.EncodeInt(packet);
 		snapshot.EncodeInt(packet);
 		snapshot.EncodeInt(packet);
@@ -94,13 +151,22 @@ class BGONE_TargetData : ScriptAndConfig
 		snapshot.EncodeVector(packet);
 		snapshot.EncodeFloat(packet);
 		snapshot.EncodeFloat(packet);
-		snapshot.EncodeInt(packet);
+
+		RplId targetId;
+		snapshot.SerializeBytes(targetId, 4);
+		packet.SerializeRplId(targetId);
 	}
 
 	static bool Decode(ScriptBitSerializer packet, ScriptCtx ctx, SSnapSerializerBase snapshot)
 	{
-		snapshot.DecodeInt(packet);
-		snapshot.DecodeInt(packet);
+		RplId shooterId;
+		packet.SerializeRplId(shooterId);
+		snapshot.SerializeBytes(shooterId, 4);
+
+		RplId turretId;
+		packet.SerializeRplId(turretId);
+		snapshot.SerializeBytes(turretId, 4);
+
 		snapshot.DecodeInt(packet);
 		snapshot.DecodeInt(packet);
 		snapshot.DecodeInt(packet);
@@ -109,180 +175,31 @@ class BGONE_TargetData : ScriptAndConfig
 		snapshot.DecodeVector(packet);
 		snapshot.DecodeFloat(packet);
 		snapshot.DecodeFloat(packet);
-		snapshot.DecodeInt(packet);
+
+		RplId targetId;
+		packet.SerializeRplId(targetId);
+		snapshot.SerializeBytes(targetId, 4);
 		return true;
 	}
 
-	static bool SnapCompare(SSnapSerializerBase lhs, SSnapSerializerBase rhs , ScriptCtx ctx)
+	static bool SnapCompare(SSnapSerializerBase lhs, SSnapSerializerBase rhs, ScriptCtx ctx)
 	{
-		return lhs.CompareSnapshots(rhs, 4+4+4+4+12+12+12+4+4+4);
+		return lhs.CompareSnapshots(rhs, 4 + 4 + 4 + 4 + 4 + 12 + 12 + 12 + 4 + 4 + 4);
 	}
 
-	// Realistically only values that should change are detonated and targetposition. maybe tragetRplId in case of target switching.
+	// Realistically only values that should change are detonated and targetposition. maybe targetRplId in case of target switching.
 	static bool PropCompare(BGONE_TargetData instance, SSnapSerializerBase snapshot, ScriptCtx ctx)
 	{
-		return snapshot.CompareInt(instance.shooterRplId)
-		 	&& snapshot.CompareInt(instance.turretRplId)
-		    && snapshot.CompareInt(instance.attackProfileIndex)
-		    && snapshot.CompareInt(instance.armingDistancesIndex)
-		    && snapshot.CompareInt(instance.detonated)
-		    && snapshot.CompareVector(instance.launchPos)
-		    && snapshot.CompareVector(instance.launchDir)
-		    && snapshot.CompareVector(instance.targetPosition)
-		    && snapshot.CompareFloat(instance.yawChange)
-		    && snapshot.CompareFloat(instance.pitchChange)
-		    && snapshot.CompareInt(instance.targetRplId);
-	}
-
-	static void EncodeDelta(SSnapSerializerBase oldSnapshot, SSnapSerializerBase newSnapshot, ScriptCtx ctx, ScriptBitSerializer packet)
-	{
-		int oldInt;
-		oldSnapshot.SerializeInt(oldInt);
-		int newInt;
-		newSnapshot.SerializeInt(newInt);
-		int deltaInt = newInt - oldInt;
-		packet.SerializeInt(deltaInt);
-
-		oldSnapshot.SerializeInt(oldInt);
-		newSnapshot.SerializeInt(newInt);
-		deltaInt = newInt - oldInt;
-		packet.SerializeInt(deltaInt);
-		
-		oldSnapshot.SerializeInt(oldInt);
-		newSnapshot.SerializeInt(newInt);
-		deltaInt = newInt - oldInt;
-		packet.SerializeInt(deltaInt);
-
-		oldSnapshot.SerializeInt(oldInt);
-		newSnapshot.SerializeInt(newInt);
-		deltaInt = newInt - oldInt;
-		packet.SerializeInt(deltaInt);
-		
-		oldSnapshot.SerializeInt(oldInt);
-		newSnapshot.SerializeInt(newInt);
-		deltaInt = newInt - oldInt;
-		packet.SerializeInt(deltaInt);
-		
-		vector oldVector;
-		oldSnapshot.SerializeVector(oldVector);
-		vector newVector;
-		newSnapshot.SerializeVector(newVector);
-		bool vectorChanged = newVector != oldVector;
-		packet.Serialize(vectorChanged, 1);
-		if (vectorChanged)
-			packet.Serialize(newVector, 96);
-		
-		oldSnapshot.SerializeVector(oldVector);
-		newSnapshot.SerializeVector(newVector);
-		vectorChanged = newVector != oldVector;
-		packet.Serialize(vectorChanged, 1);
-		if (vectorChanged)
-			packet.Serialize(newVector, 96);
-		
-		oldSnapshot.SerializeVector(oldVector);
-		newSnapshot.SerializeVector(newVector);
-		vectorChanged = newVector != oldVector;
-		packet.Serialize(vectorChanged, 1);
-		if (vectorChanged)
-			packet.Serialize(newVector, 96);
-		
-		float oldFloat;
-		oldSnapshot.SerializeFloat(oldFloat);
-		float newFloat;
-		newSnapshot.SerializeFloat(newFloat);
-		bool floatChanged = newFloat != oldFloat;
-		packet.Serialize(floatChanged, 1);
-		if (floatChanged)
-			packet.Serialize(newFloat, 32);
-		
-		oldSnapshot.SerializeFloat(oldFloat);
-		newSnapshot.SerializeFloat(newFloat);
-		floatChanged = newFloat != oldFloat;
-		packet.Serialize(floatChanged, 1);
-		if (floatChanged)
-			packet.Serialize(newFloat, 32);
-		
-		oldSnapshot.SerializeInt(oldInt);
-		newSnapshot.SerializeInt(newInt);
-		deltaInt = newInt - oldInt;
-		packet.SerializeInt(deltaInt);
-	}
-
-	static void DecodeDelta(ScriptBitSerializer packet, ScriptCtx ctx, SSnapSerializerBase oldSnapshot, SSnapSerializerBase newSnapshot)
-	{
-		int oldInt;
-		oldSnapshot.SerializeInt(oldInt);
-		int deltaInt;
-		packet.SerializeInt(deltaInt);
-		int newInt = oldInt + deltaInt;
-		newSnapshot.SerializeInt(newInt);
-
-		oldSnapshot.SerializeInt(oldInt);
-		packet.SerializeInt(deltaInt);
-		newInt = oldInt + deltaInt;
-		newSnapshot.SerializeInt(newInt);
-		
-		oldSnapshot.SerializeInt(oldInt);
-		packet.SerializeInt(deltaInt);
-		newInt = oldInt + deltaInt;
-		newSnapshot.SerializeInt(newInt);
-		
-		oldSnapshot.SerializeInt(oldInt);
-		packet.SerializeInt(deltaInt);
-		newInt = oldInt + deltaInt;
-		newSnapshot.SerializeInt(newInt);
-		
-		oldSnapshot.SerializeInt(oldInt);
-		packet.SerializeInt(deltaInt);
-		newInt = oldInt + deltaInt;
-		newSnapshot.SerializeInt(newInt);
-		
-		vector oldVector;
-		oldSnapshot.SerializeVector(oldVector);
-		bool vectorChanged;
-		packet.Serialize(vectorChanged, 1);
-		vector newVector;
-		if (vectorChanged)
-			packet.Serialize(newVector, 96);
-		else
-			newVector = oldVector;
-		newSnapshot.SerializeVector(newVector);
-		
-		oldSnapshot.SerializeVector(oldVector);
-		packet.Serialize(vectorChanged, 1);
-		if (vectorChanged)
-			packet.Serialize(newVector, 96);
-		else
-			newVector = oldVector;
-		newSnapshot.SerializeVector(newVector);
-		
-		oldSnapshot.SerializeVector(oldVector);
-		packet.Serialize(vectorChanged, 1);
-		if (vectorChanged)
-			packet.Serialize(newVector, 96);
-		else
-			newVector = oldVector;
-		newSnapshot.SerializeVector(newVector);
-		
-		float oldFloat;
-		oldSnapshot.SerializeFloat(oldFloat);
-		float newFloat;
-		newSnapshot.SerializeFloat(newFloat);
-		bool floatChanged = newFloat != oldFloat;
-		packet.Serialize(floatChanged, 1);
-		if (floatChanged)
-			packet.Serialize(newFloat, 32);
-		
-		oldSnapshot.SerializeFloat(oldFloat);
-		newSnapshot.SerializeFloat(newFloat);
-		floatChanged = newFloat != oldFloat;
-		packet.Serialize(floatChanged, 1);
-		if (floatChanged)
-			packet.Serialize(newFloat, 32);
-		
-		oldSnapshot.SerializeInt(oldInt);
-		newSnapshot.SerializeInt(newInt);
-		deltaInt = newInt - oldInt;
-		packet.SerializeInt(deltaInt);
+		return snapshot.Compare(instance.shooterRplId, 4)
+			&& snapshot.Compare(instance.turretRplId, 4)
+			&& snapshot.CompareInt(instance.attackProfileIndex)
+			&& snapshot.CompareInt(instance.armingDistancesIndex)
+			&& snapshot.CompareInt(instance.detonated)
+			&& snapshot.CompareVector(instance.launchPos)
+			&& snapshot.CompareVector(instance.launchDir)
+			&& snapshot.CompareVector(instance.targetPosition)
+			&& snapshot.CompareFloat(instance.yawChange)
+			&& snapshot.CompareFloat(instance.pitchChange)
+			&& snapshot.Compare(instance.targetRplId, 4);
 	}
 }

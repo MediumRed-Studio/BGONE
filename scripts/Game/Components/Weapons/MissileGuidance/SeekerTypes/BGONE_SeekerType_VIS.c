@@ -24,21 +24,36 @@ class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 	
 	override BGONE_TargetData ProcessFrame(BGONE_TargetData targetData, float flightTime)
 	{
-		if(flightTime > m_fTimeToLive)
+		if (!targetData)
+			return null;
+
+		m_eTargetData = targetData;
+
+		if (flightTime > m_fTimeToLive)
 		{
 			m_eTargetData.detonated = 1;
 			return m_eTargetData;
 		}
 				
-		
-		if(!targetData.targetRplId)
+		if (!targetData.targetRplId.IsValid())
 			return targetData;
-		if(!target)
+
+		if (!target)
 			target = targetData.GetTargetEntity();
-		
-		vector centerOfMass = target.GetPhysics().GetCenterOfMass();
+		if (!target || !m_eProjectile)
+			return targetData;
+
+		Physics projPhys = m_eProjectile.GetPhysics();
+		if (!projPhys)
+			return targetData;
+
+		Physics targetPhys = target.GetPhysics();
+		vector centerOfMass = vector.Zero;
+		if (targetPhys)
+			centerOfMass = targetPhys.GetCenterOfMass();
+
 		vector centerPos;
-		if(centerOfMass == vector.Zero)
+		if (centerOfMass == vector.Zero)
 			centerPos = target.GetOrigin() + vector.Up;
 		else
 			centerPos = target.GetOrigin() + centerOfMass;
@@ -46,11 +61,11 @@ class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 		vector targetPos = centerPos;
 		
 		// Check target within seeker angle and LOS to target is clear.
-		bool seekerAnglesOk = CheckSeekerAngle(m_eProjectile.GetOrigin(), m_eProjectile.GetPhysics().GetVelocity(),targetPos);
+		bool seekerAnglesOk = CheckSeekerAngle(m_eProjectile.GetOrigin(), projPhys.GetVelocity(), targetPos);
 		bool losToTarget = TraceLOS(m_eProjectile.GetOrigin(), targetPos);
-		if(!seekerAnglesOk || !losToTarget)
+		if (!seekerAnglesOk || !losToTarget)
 		{
-			if(flightTime - m_fTargetLastSeenTime > m_fNoTargetDestructTime)
+			if (flightTime - m_fTargetLastSeenTime > m_fNoTargetDestructTime)
 				m_eTargetData.detonated = 1;
 			
 			m_eTargetData.targetPosition = Vector(0,0,0);
@@ -58,12 +73,15 @@ class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 		}
 		m_fTargetLastSeenTime = flightTime;
 		
-		
 		// Calculate lead
-		float projectileSpeed = m_eProjectile.GetPhysics().GetVelocity().Length();
-		float distanceToTarget = vector.Distance(targetPos, m_eProjectile.GetOrigin());
-		float timeToHit = distanceToTarget / projectileSpeed;
-		vector calulatedLead = target.GetPhysics().GetVelocity() * timeToHit;
+		float projectileSpeed = projPhys.GetVelocity().Length();
+		vector calulatedLead = vector.Zero;
+		if (projectileSpeed > 0.01 && targetPhys)
+		{
+			float distanceToTarget = vector.Distance(targetPos, m_eProjectile.GetOrigin());
+			float timeToHit = distanceToTarget / projectileSpeed;
+			calulatedLead = targetPhys.GetVelocity() * timeToHit;
+		}
 
 		targetData.targetPosition = targetPos + calulatedLead;
 			
@@ -73,15 +91,19 @@ class BGONE_SeekerType_VIS : BGONE_SeekerType_Base
 	
 	protected bool TraceLOS(vector from, vector to)
 	{						
-		ref array<IEntity> exclude = {m_eProjectile, target };
-		TraceParam param = new TraceParam;
+		BaseWorld world = GetGame().GetWorld();
+		if (!world)
+			return false;
+
+		ref array<IEntity> exclude = {m_eProjectile, target};
+		TraceParam param = new TraceParam();
 		param.Start = from;
 		param.End = to;
 		param.LayerMask = EPhysicsLayerDefs.Projectile;
 		param.Flags = TraceFlags.ANY_CONTACT | TraceFlags.WORLD | TraceFlags.ENTS; 
 		param.ExcludeArray = exclude;
 
-		float percent = GetGame().GetWorld().TraceMove(param, null);
+		float percent = world.TraceMove(param, null);
 		if (percent == 1)	// If trace travels the entire path, return true
 			return true;
 				

@@ -15,9 +15,14 @@ class BGONE_AttackProfile_SACLOS : BGONE_AttackProfile_Base
 	
 	override BGONE_TargetData ProcessFrame(BGONE_TargetData targetData, float flightTime)
 	{
-		if(targetData.targetPosition == Vector(0,0,0))
+		if (!m_eProjectile || !targetData)
+			return targetData;
+
+		if (targetData.targetPosition == Vector(0,0,0))
 		{
-			targetData.targetPosition = m_eProjectile.GetOrigin() + m_eProjectile.GetPhysics().GetVelocity().Normalized() * 10; // Continue in a straight line
+			Physics phys = m_eProjectile.GetPhysics();
+			if (phys)
+				targetData.targetPosition = m_eProjectile.GetOrigin() + phys.GetVelocity().Normalized() * 10; // Continue in a straight line
 			return targetData;
 		}
 		
@@ -25,7 +30,9 @@ class BGONE_AttackProfile_SACLOS : BGONE_AttackProfile_Base
 		relativeCorrection -= m_vCrosshairOffset;
 		
 		float mag = relativeCorrection.Length();
-		float fovImpulse = Math.Min(1, mag / m_fMaxCorrectableDistance);
+		float fovImpulse = 1;
+		if (m_fMaxCorrectableDistance > 0)
+			fovImpulse = Math.Min(1, mag / m_fMaxCorrectableDistance);
 		
 		relativeCorrection = relativeCorrection.Normalized() * fovImpulse;
 		vector newTargetPos = m_eProjectile.GetOrigin() - m_eProjectile.VectorToParent(relativeCorrection);

@@ -9,6 +9,8 @@ MetaFileClass {
   }
   AudioProjectResourceClass PS4 : PC {
   }
+  AudioProjectResourceClass PS5 : PC {
+  }
   AudioProjectResourceClass HEADLESS : PC {
   }
  }

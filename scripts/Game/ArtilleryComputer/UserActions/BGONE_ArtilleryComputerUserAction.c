@@ -59,7 +59,10 @@ class BGONE_ArtilleryComputerUserAction : SCR_ScriptedUserAction
 		if (SCR_PossessingManagerComponent.GetPlayerIdFromControlledEntity(pUserEntity) != SCR_PlayerController.GetLocalPlayerId())
 			return;
 		
-		m_eArtilleryComputer.OpenComputer(m_MapEntity,pUserEntity);
+		if (!m_eArtilleryComputer || !m_MapEntity)
+			return;
+
+		m_eArtilleryComputer.OpenComputer(m_MapEntity, pUserEntity);
 		
 	}
 };

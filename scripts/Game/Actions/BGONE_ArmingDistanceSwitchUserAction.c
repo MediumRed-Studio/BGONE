@@ -4,17 +4,25 @@ class BGONE_ArmingDistanceSwitchUserAction : SCR_InspectionUserAction
 	{
 		if (!super.CanBeShownScript(user))
 			return false;
+
+		if (!m_WeaponComponent)
+			return false;
 		
 		BGONE_GuidedMissileLauncherComponent missileComponent = BGONE_GuidedMissileLauncherComponent.Cast(m_WeaponComponent.FindComponent(BGONE_GuidedMissileLauncherComponent));
 		if (!missileComponent)
 			return false;
 		
-		return (missileComponent && missileComponent.GetArmingDistancesCount() > 1);
+		return missileComponent.GetArmingDistancesCount() > 1;
 	}
 	
 	override bool GetActionNameScript(out string outName)
 	{
+		if (!m_WeaponComponent)
+			return false;
+
 		BGONE_GuidedMissileLauncherComponent missileComponent = BGONE_GuidedMissileLauncherComponent.Cast(m_WeaponComponent.FindComponent(BGONE_GuidedMissileLauncherComponent));
+		if (!missileComponent || missileComponent.GetArmingDistancesCount() == 0)
+			return false;
 		
 		outName = "Change Arming Distance For Seeker (" + missileComponent.GetCurrentArmingDistance().ToString() + "m)";
 		return true;
@@ -25,7 +33,7 @@ class BGONE_ArmingDistanceSwitchUserAction : SCR_InspectionUserAction
 		if (!m_WeaponComponent)
 			return;
 		BGONE_GuidedMissileLauncherComponent missileComponent = BGONE_GuidedMissileLauncherComponent.Cast(m_WeaponComponent.FindComponent(BGONE_GuidedMissileLauncherComponent));
-		if (!missileComponent)
+		if (!missileComponent || missileComponent.GetArmingDistancesCount() == 0)
 			return;
 		
 		missileComponent.CycleArmingDistance();
