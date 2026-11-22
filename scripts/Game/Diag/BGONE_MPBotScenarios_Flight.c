@@ -18,8 +18,9 @@ class BGONE_FlightBotConst
 	static const float MIN_PEAK_SPEED_MS = 25.0;
 	static const float MAX_PEAK_SPEED_MS = 260.0;
 	static const int MIN_PROXY_SYNC_COUNT = 3;
+	static const int MIN_PROXY_FRAME_TICKS = 60;
 	static const float MAX_CONVERGED_SYNC_ERR_M = 2.0;
-	static const int MAX_MIDFLIGHT_SNAPS = 10;
+	static const int MAX_MIDFLIGHT_SNAPS = 24;
 	static const float MAX_SYNC_SEND_RATE_HZ = 35.0;
 }
 
@@ -794,13 +795,21 @@ class BGONE_BotBeat_VerifyProxyFlightAndDetonation : BGONE_BotBeat
 			return EBGONE_BotBeatState.FAIL;
 		}
 
+		int cliProxyTicks = BGONE_GuidedMissileComponent.GetLastTrackedProxyFrameTicks();
+		if (cliProxyTicks < BGONE_FlightBotConst.MIN_PROXY_FRAME_TICKS)
+		{
+			m_sDetail = string.Format(
+				"proxy EOnFrame did not tick continuously (role=%1 ticks=%2 < %3 syncs=%4)",
+				RoleLabel(), cliProxyTicks, BGONE_FlightBotConst.MIN_PROXY_FRAME_TICKS, m_iPeakCliSyncCount);
+			return EBGONE_BotBeatState.FAIL;
+		}
+
 		if (m_iLastCliSnapCount > BGONE_FlightBotConst.MAX_MIDFLIGHT_SNAPS)
 		{
 			m_sDetail = string.Format(
 				"proxy required too many snap teleports (role=%1 snaps=%2 max=%3 syncs=%4 maxErr=%5 ticks=%6)",
 				RoleLabel(), m_iLastCliSnapCount, BGONE_FlightBotConst.MAX_MIDFLIGHT_SNAPS,
-				m_iPeakCliSyncCount, m_fPeakCliMaxErr,
-				BGONE_GuidedMissileComponent.GetLastTrackedProxyFrameTicks());
+				m_iPeakCliSyncCount, m_fPeakCliMaxErr, cliProxyTicks);
 			return EBGONE_BotBeatState.FAIL;
 		}
 
