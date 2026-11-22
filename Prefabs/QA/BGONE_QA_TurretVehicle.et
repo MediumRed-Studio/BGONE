@@ -1,0 +1,17 @@
+Turret : "{73530808E4B455BA}Prefabs/Weapons/Tripods/Tripod_M3_M2HB.et" {
+ ID "52D30EFBEBC74642"
+ components {
+  SCR_EditableVehicleComponent "{58FE9E4F05DC95A3}" {
+   m_UIInfo SCR_EditableVehicleUIInfo "{5298E609432D192D}" {
+    Name "BGONE QA Turret (VIS)"
+   }
+  }
+  WeaponSlotComponent "{51ACD09C6BFEEE6A}" {
+   AttachType InventoryStorageSlot "{0AACE7470E421D82}" {
+    PivotID "w_weapon_holder_tripod"
+    ChildPivotID ""
+   }
+   WeaponTemplate "{82C0AFB409A3AE0B}Prefabs/Weapons/Launchers/BGONE_Launcher_VIS.et"
+  }
+ }
+}

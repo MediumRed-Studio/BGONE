@@ -6,208 +6,531 @@ typedef ScriptInvokerBase<ScriptInvoker_OwnerChangedMethod> ScriptInvoker_OwnerC
 class BGONE_GuidedMissileLauncherComponentClass : ScriptGameComponentClass
 {
 };
+
 class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 {
 	[Attribute("", UIWidgets.Object, desc: "Script Responsible For Gathering Initial Target Data To Be Sent To The Missile", category: "BGONE")]
 	protected ref BGONE_LockType_Base m_eLockTypeComponent;
-	
+
 	protected IEntity m_eOwner;
+	protected BaseWeaponComponent m_WeaponComponent;
 	protected SCR_ChimeraCharacter m_eCurrentPlayer;
 	protected EventHandlerManagerComponent m_eventHandler;
+	protected EventHandlerManagerComponent m_TurretEventHandler;
 	protected InputManager m_InputManager;
 	protected ref array<ref BGONE_AttackProfile_Base> m_eSupportedAttackProfiles;
 	protected int m_iCurrentAttackModeIndex = 0;
 	protected ref array<int> m_aAvailableArmingDistances;
 	protected int m_iCurrentArmingDistanceIndex = 0;
 	protected RplComponent m_RplComponent;
+	protected Turret m_eTurret;
 	protected TurretControllerComponent m_eTurretController;
 	protected bool locking;
-	
+
+	protected bool m_bListenersRegistered;
+	protected bool m_bInputListenersRegistered;
+	protected bool m_bTurretHandlersRegistered;
+	protected ResourceName m_sLastInspectedAmmoTemplate;
+	protected BaseMagazineComponent m_LastInspectedMagazine;
+
 	protected ref BGONE_TargetData m_eLastTargetData;
 	protected BGONE_GuidedMissileComponent m_eLastMissile;
 	protected BGONE_GuidedMissileComponent m_eLastMissileSaclos;
-	
+
 	protected ref array<ref Shape> m_aDbgCollisionShapes;
-	
-	
-	
-	// Methods for handling ownership change and action context (de)activation.
-	protected override void EOnActivate(IEntity owner)
-	{
-		super.EOnActivate(owner);
-		if (!owner)
-			return;
-		
-		// Check if launcher is in a turret.
-		Turret turret = Turret.Cast(owner.GetParent());
-		if (turret)
-		{
-			m_eTurretController = TurretControllerComponent.Cast(turret.FindComponent(TurretControllerComponent));
-			if (m_eTurretController)
-			{
-				BaseCompartmentSlot slot = m_eTurretController.GetCompartmentSlot();
-				if (slot)
-					m_eCurrentPlayer = SCR_ChimeraCharacter.Cast(slot.GetOccupant());
-			}
-		}
-		else
-		{
-			m_eCurrentPlayer = SCR_ChimeraCharacter.Cast(owner.GetRootParent());
-		}
-		
-		if (!m_eCurrentPlayer)
-			return;
-		
-		RplComponent playerRpl = m_eCurrentPlayer.GetRplComponent();
-		if (!playerRpl || !playerRpl.Id().IsValid())
-			return;
 
-		// Update the owner to the person holding the launcher.
-		Rpc(RpcAsk_GiveOwnerShip, Replication.FindOwner(playerRpl.Id()));
-	}
-	protected override void EOnDeactivate(IEntity owner)
+	//------------------------------------------------------------------------------------------------
+	protected override void OnPostInit(IEntity owner)
 	{
-		super.EOnDeactivate(owner);
-		
-		if (!m_eCurrentPlayer)
-			return;
-	
-		// Remove the OnProjectileShot if it is not already.
-		if (m_eventHandler)
-		{
-			RemoveListeners();
-		}	
+		SetEventMask(owner, EntityEvent.INIT | EntityEvent.FRAME);
 	}
-	[RplRpc(RplChannel.Reliable, RplRcver.Server)]
-	protected void RpcAsk_GiveOwnerShip(RplIdentity identity)
-	{
-		if (!m_RplComponent)
-			return;
 
-		m_RplComponent.GiveExt(identity, false);
-		RegisterListeners();
-		Rpc(RpcDo_GiveOwnerShip, identity);
-	}
-	[RplRpc(RplChannel.Reliable, RplRcver.Owner)]
-	protected void RpcDo_GiveOwnerShip(RplIdentity identity)
-	{
-		RegisterListeners();
-	}
-	
+	//------------------------------------------------------------------------------------------------
 	protected override void EOnInit(IEntity owner)
 	{
 		if (!owner)
 			return;
 
 		m_eOwner = owner;
-		m_RplComponent = RplComponent.Cast(m_eOwner.FindComponent(RplComponent));
+		m_WeaponComponent = BaseWeaponComponent.Cast(m_eOwner.FindComponent(BaseWeaponComponent));
+		ResolveRplComponent();
 		m_InputManager = GetGame().GetInputManager();
+
+		RefreshTurretBinding();
+		RefreshMissileCapabilities();
 
 		if (!m_eLockTypeComponent)
 		{
 			Print("BGONE - Guided missile launcher initialized without a LockType component!");
 			return;
 		}
+
 		m_eLockTypeComponent.InitLockType(owner);
+		UpdateOccupantAndOwnership();
 	}
-	
-	override void EOnFixedFrame(IEntity owner, float timeSlice)
+
+	//------------------------------------------------------------------------------------------------
+	protected override void EOnActivate(IEntity owner)
 	{
-		if (!m_RplComponent || !m_RplComponent.IsOwner() || !m_eCurrentPlayer || !m_eLockTypeComponent)
+		super.EOnActivate(owner);
+		if (!owner)
 			return;
-		
-		bool turretAds = false;
-		bool weaponAds = false;
-		
-		BaseWeaponManagerComponent weaponMgr = m_eCurrentPlayer.GetWeaponManager();
-		if (weaponMgr)
+
+		if (!m_eOwner)
+			m_eOwner = owner;
+
+		ResolveRplComponent();
+		RefreshTurretBinding();
+		RefreshMissileCapabilities();
+		UpdateOccupantAndOwnership();
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected override void EOnDeactivate(IEntity owner)
+	{
+		super.EOnDeactivate(owner);
+		UnbindOccupant();
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected override void OnAddedToParent(IEntity child, IEntity parent)
+	{
+		super.OnAddedToParent(child, parent);
+		if (!m_eOwner)
+			m_eOwner = child;
+
+		ResolveRplComponent();
+		RefreshTurretBinding();
+		RefreshMissileCapabilities();
+		UpdateOccupantAndOwnership();
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected override void OnRemovedFromParent(IEntity child, IEntity parent)
+	{
+		super.OnRemovedFromParent(child, parent);
+
+		if (parent && parent == m_eTurret)
+			UnhookTurretEvents();
+
+		if (m_eCurrentPlayer)
 		{
-			BaseWeaponComponent weaponComp = weaponMgr.GetCurrentWeapon();
-			if (weaponComp)
-				weaponAds = weaponComp.IsSightADSActive();
+			bool removedFromHolder = false;
+			if (!parent || parent == m_eTurret || parent == m_eCurrentPlayer)
+			{
+				removedFromHolder = true;
+			}
+			else
+			{
+				IEntity ancestor = parent.GetParent();
+				while (ancestor)
+				{
+					if (ancestor == m_eCurrentPlayer)
+					{
+						removedFromHolder = true;
+						break;
+					}
+					ancestor = ancestor.GetParent();
+				}
+			}
+
+			if (removedFromHolder)
+				UnbindOccupant();
 		}
-		
+
+		ResolveRplComponent();
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected override void OnDelete(IEntity owner)
+	{
+		RemoveListeners();
+		UnhookTurretEvents();
+		m_eCurrentPlayer = null;
+		m_eLastMissile = null;
+		m_eLastMissileSaclos = null;
+		m_eLastTargetData = null;
+		m_aDbgCollisionShapes = null;
+		m_LastInspectedMagazine = null;
+		super.OnDelete(owner);
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected void ResolveRplComponent()
+	{
+		if (!m_eOwner)
+			return;
+
+		m_RplComponent = RplComponent.Cast(m_eOwner.FindComponent(RplComponent));
+		if (!m_RplComponent && m_eOwner.GetParent())
+			m_RplComponent = RplComponent.Cast(m_eOwner.GetParent().FindComponent(RplComponent));
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected bool IsLocallyOwned()
+	{
+		if (!m_RplComponent)
+			return !Replication.IsRunning();
+
+		return m_RplComponent.IsOwner();
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected bool IsLocalPlayerControlled()
+	{
+		if (!m_eCurrentPlayer)
+			return false;
+
+		return SCR_PlayerController.GetLocalControlledEntity() == m_eCurrentPlayer;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected void RefreshTurretBinding()
+	{
+		if (!m_eOwner)
+			return;
+
+		Turret parentTurret = Turret.Cast(m_eOwner.GetParent());
+		if (parentTurret == m_eTurret)
+		{
+			if (m_eTurret && !m_eTurretController)
+				m_eTurretController = TurretControllerComponent.Cast(m_eTurret.FindComponent(TurretControllerComponent));
+
+			if (m_eTurret && !m_bTurretHandlersRegistered)
+				HookTurretEvents(m_eTurret);
+
+			return;
+		}
+
+		UnhookTurretEvents();
+
+		if (!parentTurret)
+			return;
+
+		m_eTurret = parentTurret;
+		m_eTurretController = TurretControllerComponent.Cast(m_eTurret.FindComponent(TurretControllerComponent));
+		HookTurretEvents(m_eTurret);
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected void HookTurretEvents(Turret turret)
+	{
+		if (!turret || m_bTurretHandlersRegistered)
+			return;
+
+		m_TurretEventHandler = EventHandlerManagerComponent.Cast(turret.FindComponent(EventHandlerManagerComponent));
+		if (!m_TurretEventHandler)
+			return;
+
+		m_TurretEventHandler.RegisterScriptHandler("OnCompartmentEntered", this, OnCompartmentEntered);
+		m_TurretEventHandler.RegisterScriptHandler("OnCompartmentLeft", this, OnCompartmentLeft);
+		m_bTurretHandlersRegistered = true;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected void UnhookTurretEvents()
+	{
+		if (m_bTurretHandlersRegistered && m_TurretEventHandler)
+		{
+			m_TurretEventHandler.RemoveScriptHandler("OnCompartmentEntered", this, OnCompartmentEntered);
+			m_TurretEventHandler.RemoveScriptHandler("OnCompartmentLeft", this, OnCompartmentLeft);
+		}
+
+		m_bTurretHandlersRegistered = false;
+		m_TurretEventHandler = null;
+		m_eTurretController = null;
+		m_eTurret = null;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	void OnCompartmentEntered(IEntity vehicle, BaseCompartmentManagerComponent mgr, IEntity occupant, int managerId, int slotID)
+	{
+		UpdateOccupantAndOwnership();
+	}
+
+	//------------------------------------------------------------------------------------------------
+	void OnCompartmentLeft(IEntity vehicle, BaseCompartmentManagerComponent mgr, IEntity occupant, int managerId, int slotID)
+	{
+		if (m_eCurrentPlayer && (!occupant || occupant == m_eCurrentPlayer))
+			UnbindOccupant();
+
+		UpdateOccupantAndOwnership();
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected SCR_ChimeraCharacter ResolveOccupant()
+	{
+		if (!m_eOwner)
+			return null;
+
 		if (m_eTurretController)
-			turretAds = m_eTurretController.IsWeaponADS();
-		 	
-		if (!m_eventHandler || (!weaponAds && !turretAds))
+		{
+			BaseCompartmentSlot slot = m_eTurretController.GetCompartmentSlot();
+			if (!slot)
+				return null;
+
+			return SCR_ChimeraCharacter.Cast(slot.GetOccupant());
+		}
+
+		IEntity parent = m_eOwner.GetParent();
+		while (parent)
+		{
+			SCR_ChimeraCharacter character = SCR_ChimeraCharacter.Cast(parent);
+			if (character)
+				return character;
+
+			parent = parent.GetParent();
+		}
+
+		return null;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected bool IsStillHeldByPlayer()
+	{
+		if (!m_eCurrentPlayer)
+			return false;
+
+		return ResolveOccupant() == m_eCurrentPlayer;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected void UpdateOccupantAndOwnership()
+	{
+		if (!m_eOwner)
+			return;
+
+		RefreshTurretBinding();
+
+		if (m_eCurrentPlayer && !IsStillHeldByPlayer())
+			UnbindOccupant();
+
+		SCR_ChimeraCharacter resolvedPlayer = ResolveOccupant();
+		if (resolvedPlayer != m_eCurrentPlayer)
+		{
+			if (m_eCurrentPlayer)
+				UnbindOccupant();
+
+			if (resolvedPlayer)
+			{
+				m_eCurrentPlayer = resolvedPlayer;
+				TransferOwnershipServer(resolvedPlayer);
+			}
+		}
+
+		if (m_eCurrentPlayer)
+		{
+			if (Replication.IsServer())
+				TransferOwnershipServer(m_eCurrentPlayer);
+
+			RegisterListeners();
+		}
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected void TransferOwnershipServer(SCR_ChimeraCharacter player)
+	{
+		if (!Replication.IsServer() || !m_RplComponent || !player)
+			return;
+
+		if (!m_RplComponent.Id().IsValid())
+			return;
+
+		RplComponent playerRpl = player.GetRplComponent();
+		if (!playerRpl || !playerRpl.Id().IsValid())
+			return;
+
+		RplIdentity targetIdentity = Replication.FindOwner(playerRpl.Id());
+		if (!targetIdentity.IsValid())
+			return;
+
+		RplIdentity currentOwner = Replication.FindOwner(m_RplComponent.Id());
+		if (currentOwner == targetIdentity)
+			return;
+
+		m_RplComponent.GiveExt(targetIdentity, false);
+		Rpc(RpcDo_OnOccupantBound);
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected void UnbindOccupant()
+	{
+		bool hadPlayer = (m_eCurrentPlayer != null);
+
+		if (hadPlayer && Replication.IsServer() && m_RplComponent && m_RplComponent.Id().IsValid())
+		{
+			RplIdentity currentOwner = Replication.FindOwner(m_RplComponent.Id());
+			if (currentOwner.IsValid() && currentOwner != RplIdentity.Local())
+				Rpc(RpcDo_OnOccupantUnbound);
+		}
+
+		RemoveListeners();
+		m_eCurrentPlayer = null;
+
+		if (hadPlayer && Replication.IsServer() && m_RplComponent && m_RplComponent.GetEntity() == m_eOwner && m_RplComponent.Id().IsValid())
+		{
+			RplIdentity currentOwner = Replication.FindOwner(m_RplComponent.Id());
+			if (currentOwner.IsValid() && currentOwner != RplIdentity.Local())
+				m_RplComponent.GiveExt(RplIdentity.Local(), false);
+		}
+	}
+
+	//------------------------------------------------------------------------------------------------
+	[RplRpc(RplChannel.Reliable, RplRcver.Owner)]
+	protected void RpcDo_OnOccupantBound()
+	{
+		UpdateOccupantAndOwnership();
+	}
+
+	//------------------------------------------------------------------------------------------------
+	[RplRpc(RplChannel.Reliable, RplRcver.Owner)]
+	protected void RpcDo_OnOccupantUnbound()
+	{
+		RemoveListeners();
+		m_eCurrentPlayer = null;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected void StopLockInternal()
+	{
+		locking = false;
+		if (m_eLockTypeComponent)
+		{
+			m_eLockTypeComponent.StopLock();
+			m_eLockTypeComponent.TerminateLockOnAudio();
+		}
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override void EOnFrame(IEntity owner, float timeSlice)
+	{
+		if (!m_eOwner)
+			m_eOwner = owner;
+
+		UpdateOccupantAndOwnership();
+		CheckMuzzleCapabilitiesOnChange();
+
+		if (!IsLocallyOwned() || !IsLocalPlayerControlled() || !m_eCurrentPlayer || !m_eLockTypeComponent)
 		{
 			if (locking)
-				m_eLockTypeComponent.StopLock();
+			{
+				locking = false;
+				if (m_eLockTypeComponent)
+					m_eLockTypeComponent.StopLock();
+			}
 			return;
 		}
-			
+
+		bool isLauncherAds = false;
+		if (m_eTurretController)
+		{
+			if (m_eTurretController.IsWeaponADS())
+			{
+				BaseWeaponManagerComponent turretWeaponMgr = m_eTurretController.GetWeaponManager();
+				if (!turretWeaponMgr)
+				{
+					isLauncherAds = true;
+				}
+				else
+				{
+					BaseWeaponComponent turretWeapon = turretWeaponMgr.GetCurrentWeapon();
+					if (!turretWeapon || turretWeapon.GetOwner() == m_eOwner)
+						isLauncherAds = true;
+				}
+			}
+		}
+		else
+		{
+			BaseWeaponManagerComponent weaponMgr = m_eCurrentPlayer.GetWeaponManager();
+			if (weaponMgr)
+			{
+				BaseWeaponComponent weaponComp = weaponMgr.GetCurrentWeapon();
+				if (weaponComp && weaponComp.GetOwner() == m_eOwner)
+				{
+					CharacterControllerComponent charCtrl = m_eCurrentPlayer.GetCharacterController();
+					isLauncherAds = weaponComp.IsSightADSActive() || (charCtrl && charCtrl.IsWeaponADS());
+				}
+			}
+		}
+
+		if (!m_eventHandler || !isLauncherAds)
+		{
+			if (locking)
+			{
+				locking = false;
+				m_eLockTypeComponent.StopLock();
+			}
+			return;
+		}
+
+		if (!m_InputManager)
+			m_InputManager = GetGame().GetInputManager();
+
 		if (m_InputManager)
 			m_InputManager.ActivateContext("CharacterWeaponGuidedLauncher");
-		
+
 		m_eLockTypeComponent.UpdateLock(timeSlice);
 	}
+
+	//------------------------------------------------------------------------------------------------
 	protected void SetLockingState(float value, EActionTrigger reason)
 	{
-		if (!m_RplComponent || !m_RplComponent.IsOwner() || !m_eLockTypeComponent)
+		SetLockInputState(reason == EActionTrigger.DOWN);
+	}
+
+	//------------------------------------------------------------------------------------------------
+	void SetLockInputState(bool active)
+	{
+		if (!IsLocallyOwned() || !m_eLockTypeComponent)
 			return;
-		
-		locking = reason == EActionTrigger.DOWN;
+
+		locking = active;
 		if (locking)
 			m_eLockTypeComponent.StartLock();
 		else
 			m_eLockTypeComponent.StopLock();
 	}
-	
+
+	//------------------------------------------------------------------------------------------------
 	protected void LockStartAquire(BGONE_LockingData_BASE lockingData)
 	{
-		if (!lockingData)
+		if (!lockingData || !m_eLockTypeComponent || !IsLocalPlayerControlled())
 			return;
 
-		Rpc(RpcAsk_PlayLockonAudio, lockingData.lockingProgress, false);
+		m_eLockTypeComponent.PlayLockOnAuido(lockingData.lockingProgress);
 	}
-	
+
+	//------------------------------------------------------------------------------------------------
 	protected void LockAquired(BGONE_LockingData_BASE lockingData)
 	{
-		if (!lockingData)
+		if (!lockingData || !m_eLockTypeComponent || !IsLocalPlayerControlled())
 			return;
 
-		Rpc(RpcAsk_PlayLockonAudio, lockingData.lockingProgress, false);
+		m_eLockTypeComponent.PlayLockOnAuido(lockingData.lockingProgress);
 	}
-	
+
+	//------------------------------------------------------------------------------------------------
 	protected void LockLost()
 	{
-		Rpc(RpcAsk_PlayLockonAudio, 0, true);
-	}
-	[RplRpc(RplChannel.Reliable, RplRcver.Server)]
-	void RpcAsk_PlayLockonAudio(float lockingProgress, bool terminate)
-	{
-		if (!m_eLockTypeComponent)
+		if (!m_eLockTypeComponent || !IsLocalPlayerControlled())
 			return;
 
-		if (terminate)
-			m_eLockTypeComponent.TerminateLockOnAudio();
-		else
-			m_eLockTypeComponent.PlayLockOnAuido(lockingProgress);
-			
-		Rpc(RpcDo_PlayLockonAudio, lockingProgress, terminate);
+		m_eLockTypeComponent.TerminateLockOnAudio();
 	}
-	[RplRpc(RplChannel.Reliable, RplRcver.Broadcast)]
-	void RpcDo_PlayLockonAudio(float lockingProgress, bool terminate)
-	{
-		if (!m_eLockTypeComponent)
-			return;
 
-		if (terminate)
-			m_eLockTypeComponent.TerminateLockOnAudio();
-		else
-			m_eLockTypeComponent.PlayLockOnAuido(lockingProgress);
-	}
-	
+	//------------------------------------------------------------------------------------------------
 	protected void OnLaunch(int playerID, BaseWeaponComponent weapon, IEntity entity)
-	{	
+	{
 		if (!m_RplComponent || m_RplComponent.IsRemoteProxy() || !entity)
 			return;
-		
+
+		if (weapon && weapon.GetOwner() != m_eOwner)
+			return;
+
 		m_eLastMissile = BGONE_GuidedMissileComponent.Cast(entity.FindComponent(BGONE_GuidedMissileComponent));
 		if (!m_eLastMissile)
 			return;
-		
+
 		// If targetdata already set from owner, use that.
 		BGONE_TargetData targetData;
 		if (m_eLastTargetData)
@@ -222,7 +545,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			targetData = m_eLockTypeComponent.GetCurrentTargetData();
 			if (!targetData)
 				return;
-			
+
 			targetData.launchPos = entity.GetOrigin();
 			targetData.attackProfileIndex = m_iCurrentAttackModeIndex;
 			targetData.armingDistancesIndex = m_iCurrentArmingDistanceIndex;
@@ -238,17 +561,19 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 				targetData.turretRplId = turretId;
 			}
 		}
-		
+
 		BGONE_TargetData clonedData = BGONE_TargetData.Cast(targetData.Clone());
 		if (clonedData)
 			Rpc(RpcAsk_SendTargetData, clonedData);
 	}
-	
+
+	//------------------------------------------------------------------------------------------------
 	void SaclosFix()
 	{
 		Rpc(RpcDo_SaclosFix);
 	}
-	
+
+	//------------------------------------------------------------------------------------------------
 	[RplRpc(RplChannel.Unreliable, RplRcver.Owner)]
 	void RpcDo_SaclosFix()
 	{
@@ -270,7 +595,6 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 				return;
 
 			aimDir = headAim.GetAimingDirectionWorld();
-			aimDir[0] = -aimDir[0];
 			aimPos = m_eCurrentPlayer.EyePosition();
 		}
 		else
@@ -280,7 +604,8 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 
 		Rpc(RpcAsk_SaclosFix, aimDir, aimPos);
 	}
-	
+
+	//------------------------------------------------------------------------------------------------
 	[RplRpc(RplChannel.Unreliable, RplRcver.Server)]
 	void RpcAsk_SaclosFix(vector aimDir, vector aimPos)
 	{
@@ -289,7 +614,8 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			m_eLastMissileSaclos.UpdateTurretAim(aimDir, aimPos);
 		}
 	}
-	
+
+	//------------------------------------------------------------------------------------------------
 	[RplRpc(RplChannel.Reliable, RplRcver.Server)]
 	void RpcAsk_SendTargetData(BGONE_TargetData targetData)
 	{
@@ -301,98 +627,291 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			m_eLastTargetData = targetData;
 			return;
 		}
-		
+
 		// Save reference to fired missile for saclos fix.
 		m_eLastMissileSaclos = m_eLastMissile;
-		
+
 		m_aDbgCollisionShapes = m_eLastMissile.onLaunched(targetData, this);
-		
+
 		// Consumed last missile and targetdata, reset.
 		m_eLastTargetData = null;
 		m_eLastMissile = null;
 	}
-	
+
+	//------------------------------------------------------------------------------------------------
 	protected void RegisterListeners()
 	{
 		if (!m_eCurrentPlayer || !m_eLockTypeComponent)
 			return;
 
-		// Register the OnProjectileShot if it is not already.
-		if (!m_eventHandler)
+		bool canBindShotHandler = Replication.IsServer() || IsLocallyOwned();
+		if (canBindShotHandler && !m_bListenersRegistered)
 		{
-			m_eventHandler = EventHandlerManagerComponent.Cast(m_eCurrentPlayer.FindComponent(EventHandlerManagerComponent));
 			if (!m_eventHandler)
 			{
-				Print("BGONE GuidedMissileLauncher - EventHandler Missing On Equipped Player", LogLevel.ERROR);
-				return;
+				m_eventHandler = EventHandlerManagerComponent.Cast(m_eCurrentPlayer.FindComponent(EventHandlerManagerComponent));
+				if (!m_eventHandler)
+				{
+					Print("BGONE GuidedMissileLauncher - EventHandler Missing On Equipped Player", LogLevel.ERROR);
+					return;
+				}
+			}
+
+			m_eventHandler.RegisterScriptHandler("OnProjectileShot", this, OnLaunch);
+			m_bListenersRegistered = true;
+		}
+
+		if (!m_bInputListenersRegistered && IsLocallyOwned() && IsLocalPlayerControlled())
+		{
+			if (!m_InputManager)
+				m_InputManager = GetGame().GetInputManager();
+
+			if (m_InputManager)
+			{
+				m_eLockTypeComponent.GetOnLockStartAquire().Insert(LockStartAquire);
+				m_eLockTypeComponent.GetOnLockAquired().Insert(LockAquired);
+				m_eLockTypeComponent.GetOnLockLost().Insert(LockLost);
+
+				m_InputManager.AddActionListener("BGONELock", EActionTrigger.DOWN, SetLockingState);
+				m_InputManager.AddActionListener("BGONELock", EActionTrigger.UP, SetLockingState);
+				m_bInputListenersRegistered = true;
 			}
 		}
-		m_eLockTypeComponent.GetOnLockStartAquire().Insert(LockStartAquire);
-		m_eLockTypeComponent.GetOnLockAquired().Insert(LockAquired);
-		m_eLockTypeComponent.GetOnLockLost().Insert(LockLost);
-		
-		m_eventHandler.RegisterScriptHandler("OnProjectileShot", this, OnLaunch);
-
-		if (m_InputManager)
-		{
-			m_InputManager.AddActionListener("BGONELock", EActionTrigger.DOWN, SetLockingState);
-			m_InputManager.AddActionListener("BGONELock", EActionTrigger.UP, SetLockingState);
-		}
 	}
-	
+
+	//------------------------------------------------------------------------------------------------
 	protected void RemoveListeners()
 	{
-		if (m_eLockTypeComponent)
+		StopLockInternal();
+
+		if (m_bInputListenersRegistered)
 		{
-			m_eLockTypeComponent.GetOnLockStartAquire().Remove(LockStartAquire);
-			m_eLockTypeComponent.GetOnLockAquired().Remove(LockAquired);
-			m_eLockTypeComponent.GetOnLockLost().Remove(LockLost);
+			if (m_eLockTypeComponent)
+			{
+				m_eLockTypeComponent.GetOnLockStartAquire().Remove(LockStartAquire);
+				m_eLockTypeComponent.GetOnLockAquired().Remove(LockAquired);
+				m_eLockTypeComponent.GetOnLockLost().Remove(LockLost);
+			}
+
+			if (m_InputManager)
+			{
+				m_InputManager.RemoveActionListener("BGONELock", EActionTrigger.DOWN, SetLockingState);
+				m_InputManager.RemoveActionListener("BGONELock", EActionTrigger.UP, SetLockingState);
+			}
+
+			m_bInputListenersRegistered = false;
 		}
-		LockLost();
-		
-		if (m_eventHandler)
-		{
+
+		if (m_bListenersRegistered && m_eventHandler)
 			m_eventHandler.RemoveScriptHandler("OnProjectileShot", this, OnLaunch);
-			m_eventHandler = null;
-		}
-		
-		if (m_InputManager)
-		{
-			m_InputManager.RemoveActionListener("BGONELock", EActionTrigger.DOWN, SetLockingState);
-			m_InputManager.RemoveActionListener("BGONELock", EActionTrigger.UP, SetLockingState);
-		}
+
+		m_bListenersRegistered = false;
+		m_eventHandler = null;
 	}
-	
-	override void OnPostInit(IEntity owner)
+
+	//------------------------------------------------------------------------------------------------
+	protected void CheckMuzzleCapabilitiesOnChange()
 	{
-		SetEventMask(owner, EntityEvent.INIT | EntityEvent.FIXEDFRAME);
+		if (!m_eOwner)
+			return;
+
+		if (!m_WeaponComponent)
+			m_WeaponComponent = BaseWeaponComponent.Cast(m_eOwner.FindComponent(BaseWeaponComponent));
+
+		if (!m_WeaponComponent)
+			return;
+
+		BaseMuzzleComponent muzzle = m_WeaponComponent.GetCurrentMuzzle();
+		BaseMagazineComponent curMag = null;
+		if (muzzle)
+			curMag = muzzle.GetMagazine();
+
+		if (m_sLastInspectedAmmoTemplate.IsEmpty() || curMag != m_LastInspectedMagazine)
+			RefreshMissileCapabilities();
 	}
-	
+
+	//------------------------------------------------------------------------------------------------
+	protected ResourceName ResolveLoadedAmmoTemplate()
+	{
+		if (!m_eOwner)
+			return ResourceName.Empty;
+
+		if (!m_WeaponComponent)
+			m_WeaponComponent = BaseWeaponComponent.Cast(m_eOwner.FindComponent(BaseWeaponComponent));
+
+		if (!m_WeaponComponent)
+			return ResourceName.Empty;
+
+		BaseMuzzleComponent muzzle = m_WeaponComponent.GetCurrentMuzzle();
+		if (!muzzle)
+		{
+			array<BaseMuzzleComponent> muzzles = {};
+			m_WeaponComponent.GetMuzzlesList(muzzles);
+			if (!muzzles.IsEmpty())
+				muzzle = muzzles[0];
+		}
+
+		if (!muzzle)
+			return ResourceName.Empty;
+
+		BaseMagazineComponent mag = muzzle.GetMagazine();
+		m_LastInspectedMagazine = mag;
+		if (mag && mag.GetOwner())
+		{
+			EntityPrefabData magPrefab = mag.GetOwner().GetPrefabData();
+			if (magPrefab)
+			{
+				ResourceName magName = magPrefab.GetPrefabName();
+				if (!magName.IsEmpty())
+					return magName;
+			}
+		}
+
+		ResourceName defaultName = muzzle.GetDefaultMagazineOrProjectileName();
+		if (!defaultName.IsEmpty())
+			return defaultName;
+
+		BaseContainer muzzleSrc = muzzle.GetComponentSource(m_eOwner);
+		if (muzzleSrc)
+		{
+			ResourceName ammoAttr;
+			if (muzzleSrc.Get("AmmoTemplate", ammoAttr) && !ammoAttr.IsEmpty())
+				return ammoAttr;
+		}
+
+		return ResourceName.Empty;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	void RefreshMissileCapabilities()
+	{
+		ResourceName ammoTemplate = ResolveLoadedAmmoTemplate();
+		if (ammoTemplate.IsEmpty() || ammoTemplate == m_sLastInspectedAmmoTemplate)
+			return;
+
+		m_sLastInspectedAmmoTemplate = ammoTemplate;
+		DiscoverMissileCapabilitiesFromTemplate(ammoTemplate);
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected void DiscoverMissileCapabilitiesFromTemplate(ResourceName ammoTemplate)
+	{
+		if (ammoTemplate.IsEmpty())
+			return;
+
+		Resource res = Resource.Load(ammoTemplate);
+		if (!res || !res.IsValid())
+			return;
+
+		BaseResourceObject resObj = res.GetResource();
+		if (!resObj)
+			return;
+
+		IEntitySource entSrc = resObj.ToEntitySource();
+		if (!entSrc)
+			return;
+
+		IEntityComponentSource missileCompSrc = SCR_BaseContainerTools.FindComponentSource(entSrc, BGONE_GuidedMissileComponent);
+		if (!missileCompSrc)
+			return;
+
+		array<ref BGONE_AttackProfile_Base> discoveredProfiles = {};
+		BaseContainerList profileList = missileCompSrc.GetObjectArray("m_eAttackProfileComponents");
+		if (profileList)
+		{
+			int profileCount = profileList.Count();
+			for (int i = 0; i < profileCount; i++)
+			{
+				BaseContainer profileContainer = profileList.Get(i);
+				if (!profileContainer)
+					continue;
+
+				BGONE_AttackProfile_Base profileObj = BGONE_AttackProfile_Base.Cast(BaseContainerTools.CreateInstanceFromContainer(profileContainer));
+				if (profileObj)
+					discoveredProfiles.Insert(profileObj);
+			}
+		}
+
+		if (!discoveredProfiles.IsEmpty())
+			SetAvailableAttackProfiles(discoveredProfiles);
+
+		array<int> discoveredDistances = {};
+		BaseContainer seekerContainer = missileCompSrc.GetObject("m_eSeekerTypeComponent");
+		if (seekerContainer)
+		{
+			array<int> rawDistances;
+			if (seekerContainer.Get("m_fArmingDistances", rawDistances) && rawDistances && !rawDistances.IsEmpty())
+			{
+				foreach (int dist : rawDistances)
+				{
+					discoveredDistances.Insert(dist);
+				}
+			}
+			else
+			{
+				BGONE_SeekerType_Base seekerObj = BGONE_SeekerType_Base.Cast(BaseContainerTools.CreateInstanceFromContainer(seekerContainer));
+				if (seekerObj)
+				{
+					array<int> seekerDistances = seekerObj.GetAvailableArmingDistances();
+					if (seekerDistances)
+					{
+						foreach (int fallbackDist : seekerDistances)
+						{
+							discoveredDistances.Insert(fallbackDist);
+						}
+					}
+				}
+			}
+		}
+
+		if (!discoveredDistances.IsEmpty())
+			SetAvailableArmingDistances(discoveredDistances);
+	}
+
+	//------------------------------------------------------------------------------------------------
 	// Methods for registering available firemodes and arming distances.
 	void SetAvailableAttackProfiles(array<ref BGONE_AttackProfile_Base> attackProfiles)
 	{
 		m_eSupportedAttackProfiles = attackProfiles;
+		if (!m_eSupportedAttackProfiles || m_iCurrentAttackModeIndex < 0 || m_iCurrentAttackModeIndex >= m_eSupportedAttackProfiles.Count())
+			m_iCurrentAttackModeIndex = 0;
 	}
-	
+
+	//------------------------------------------------------------------------------------------------
 	void SetAvailableArmingDistances(array<int> armingDistances)
 	{
 		m_aAvailableArmingDistances = armingDistances;
+		if (!m_aAvailableArmingDistances || m_iCurrentArmingDistanceIndex < 0 || m_iCurrentArmingDistanceIndex >= m_aAvailableArmingDistances.Count())
+			m_iCurrentArmingDistanceIndex = 0;
 	}
+
+	//------------------------------------------------------------------------------------------------
 	// Methods for selecting firemode and armingdistance on the launcher.
-	int GetArmingDistancesCount() 
+	int GetArmingDistancesCount()
 	{
 		if (!m_aAvailableArmingDistances)
 			return 0;
-		
+
 		return m_aAvailableArmingDistances.Count();
 	}
+
+	//------------------------------------------------------------------------------------------------
 	void CycleArmingDistance()
 	{
-		if (m_iCurrentArmingDistanceIndex < GetArmingDistancesCount() - 1)
-			m_iCurrentArmingDistanceIndex ++;
+		int count = GetArmingDistancesCount();
+		if (count <= 0)
+		{
+			m_iCurrentArmingDistanceIndex = 0;
+			return;
+		}
+
+		if (m_iCurrentArmingDistanceIndex < count - 1)
+			m_iCurrentArmingDistanceIndex = m_iCurrentArmingDistanceIndex + 1;
 		else
 			m_iCurrentArmingDistanceIndex = 0;
 	}
+
+	//------------------------------------------------------------------------------------------------
 	int GetCurrentArmingDistance()
 	{
 		if (!m_aAvailableArmingDistances || m_aAvailableArmingDistances.IsEmpty())
@@ -403,19 +922,33 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 
 		return m_aAvailableArmingDistances[m_iCurrentArmingDistanceIndex];
 	}
-	int GetAttackModesCount() 
+
+	//------------------------------------------------------------------------------------------------
+	int GetAttackModesCount()
 	{
 		if (!m_eSupportedAttackProfiles)
 			return 0;
+
 		return m_eSupportedAttackProfiles.Count();
 	}
+
+	//------------------------------------------------------------------------------------------------
 	void CycleAttackMode()
 	{
-		if (m_iCurrentAttackModeIndex < GetAttackModesCount() - 1)
-			m_iCurrentAttackModeIndex ++;
+		int count = GetAttackModesCount();
+		if (count <= 0)
+		{
+			m_iCurrentAttackModeIndex = 0;
+			return;
+		}
+
+		if (m_iCurrentAttackModeIndex < count - 1)
+			m_iCurrentAttackModeIndex = m_iCurrentAttackModeIndex + 1;
 		else
 			m_iCurrentAttackModeIndex = 0;
 	}
+
+	//------------------------------------------------------------------------------------------------
 	BGONE_AttackProfile_Base GetCurrentAttackMode()
 	{
 		if (!m_eSupportedAttackProfiles || m_eSupportedAttackProfiles.IsEmpty())
@@ -425,5 +958,54 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			m_iCurrentAttackModeIndex = 0;
 
 		return m_eSupportedAttackProfiles[m_iCurrentAttackModeIndex];
+	}
+
+	//------------------------------------------------------------------------------------------------
+	// Read-only telemetry getters.
+	BGONE_LockType_Base GetLockTypeComponent()
+	{
+		return m_eLockTypeComponent;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	bool IsLocking()
+	{
+		return locking;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	IEntity GetCurrentOwnerEntity()
+	{
+		return m_eCurrentPlayer;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	bool IsLauncherBound()
+	{
+		return m_eCurrentPlayer != null && m_eventHandler != null && m_bListenersRegistered;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	int GetAvailableAttackProfileCount()
+	{
+		return GetAttackModesCount();
+	}
+
+	//------------------------------------------------------------------------------------------------
+	int GetAvailableArmingDistanceCount()
+	{
+		return GetArmingDistancesCount();
+	}
+
+	//------------------------------------------------------------------------------------------------
+	int GetSelectedAttackProfileIndex()
+	{
+		return m_iCurrentAttackModeIndex;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	int GetSelectedArmingDistanceIndex()
+	{
+		return m_iCurrentArmingDistanceIndex;
 	}
 };
