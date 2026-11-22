@@ -59,15 +59,8 @@
       "_why": "Flags duplicate .meta GUIDs, dangling local/BGONE {GUID}path references, and references whose path disagrees (case-sensitively) with the owning .meta Name.",
       "localPathPattern": "(?i)(?:BGONE|LockOn|testImageSet|MapArtilleryComputer)",
       "excludeMetaTopDirs": [ ".git", ".qa", "tools" ],
-      "_baselineNote": "Remaining pre-existing upstream dangling GUIDs in Worlds/LauncherTest layers (6 entries), tracked for PR 7 test-world cleanup. The 8 upstream .meta Name mismatches were resolved in PR #64.",
-      "baseline": [
-        { "file": "Worlds/LauncherTest/BGONE_BmpTest_Layers/BGONE_Test.layer", "ref": "{5F7AE6931FD9801F}Prefabs/Weapons/Launchers/BGONE_Launcher_SACLOS.et", "_why": "Upstream dangling GUID in LauncherTest layer; tracked for PR 7 world cleanup." },
-        { "file": "Worlds/LauncherTest/BGONE_LauncherTestWorld_Layers/BGONE_Test.layer", "ref": "{5E7D2BE3152D3060}Prefabs/Weapons/Ammo/BGONE_Ammo_Missile_PLOS.et", "_why": "Upstream dangling GUID in LauncherTest layer; tracked for PR 7 world cleanup." },
-        { "file": "Worlds/LauncherTest/BGONE_LauncherTestWorld_Layers/BGONE_Test.layer", "ref": "{5F7AE6931FD9801F}Prefabs/Weapons/Launchers/BGONE_Launcher_SACLOS.et", "_why": "Upstream dangling GUID in LauncherTest layer; tracked for PR 7 world cleanup." },
-        { "file": "Worlds/LauncherTest/BGONE_LauncherTestWorld_Layers/BGONE_Test.layer", "ref": "{8D2EE2208265FD4A}Prefabs/Weapons/Launchers/BGONE_Launcher_PLOS.et", "_why": "Upstream dangling GUID in LauncherTest layer; tracked for PR 7 world cleanup." },
-        { "file": "Worlds/LauncherTest/BGONE_LauncherTestWorld_Layers/BGONE_Test.layer", "ref": "{A05613F5CDB2E3CD}Prefabs/Weapons/Launchers/BGONE_Launcher_VIS.et", "_why": "Upstream dangling GUID in LauncherTest layer; tracked for PR 7 world cleanup." },
-        { "file": "Worlds/LauncherTest/BGONE_LauncherTestWorld_Layers/BGONE_Test.layer", "ref": "{E28D3186FCB79063}Prefabs/Weapons/Ammo/BGONE_Ammo_Missile_VIS_TOP.et", "_why": "Upstream dangling GUID in LauncherTest layer; tracked for PR 7 world cleanup." }
-      ],
+      "_baselineNote": "Zero remaining baseline debt; all LauncherTest dangling GUIDs were resolved in PR 7.",
+      "baseline": [],
       "allowReferences": []
     },
 

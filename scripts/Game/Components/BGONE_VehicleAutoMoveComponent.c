@@ -1,0 +1,78 @@
+[ComponentEditorProps(category: "GameScripted/Vehicles/BGONE", description: "Server-authoritative vehicle shuttling component for moving target tests")]
+class BGONE_VehicleAutoMoveComponentClass : ScriptGameComponentClass
+{
+}
+
+class BGONE_VehicleAutoMoveComponent : ScriptGameComponent
+{
+	[Attribute("10", UIWidgets.Slider, "Horizontal travel speed in m/s", "0 100 1", category: "BGONE")]
+	protected float m_fSpeed;
+
+	[Attribute("100", UIWidgets.Slider, "Travel distance before reversing in meters", "10 5000 10", category: "BGONE")]
+	protected float m_fTravelDistance;
+
+	protected IEntity m_eOwner;
+	protected vector m_vInitialDir;
+	protected bool m_bMovingForward = true;
+	protected float m_fDistanceTraveled;
+	protected RplComponent m_RplComponent;
+
+	//------------------------------------------------------------------------------------------------
+	override void OnPostInit(IEntity owner)
+	{
+		m_eOwner = owner;
+		SetEventMask(owner, EntityEvent.INIT | EntityEvent.FIXEDFRAME);
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override void EOnInit(IEntity owner)
+	{
+		m_eOwner = owner;
+		if (!m_eOwner)
+			return;
+
+		m_RplComponent = RplComponent.Cast(m_eOwner.FindComponent(RplComponent));
+
+		vector mat[4];
+		m_eOwner.GetWorldTransform(mat);
+		m_vInitialDir = mat[2];
+		m_vInitialDir[1] = 0.0;
+		if (m_vInitialDir.LengthSq() > 0.0001)
+			m_vInitialDir.Normalize();
+		else
+			m_vInitialDir = Vector(0.0, 0.0, 1.0);
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override void EOnFixedFrame(IEntity owner, float timeSlice)
+	{
+		if (!m_eOwner || m_fSpeed <= 0.0)
+			return;
+
+		if (!Replication.IsServer())
+			return;
+
+		if (m_RplComponent && !m_RplComponent.IsMaster())
+			return;
+
+		Physics phys = m_eOwner.GetPhysics();
+		if (!phys || !phys.IsDynamic())
+			return;
+
+		float step = m_fSpeed * timeSlice;
+		m_fDistanceTraveled = m_fDistanceTraveled + step;
+
+		if (m_fTravelDistance > 0.0 && m_fDistanceTraveled >= m_fTravelDistance)
+		{
+			m_fDistanceTraveled = 0.0;
+			m_bMovingForward = !m_bMovingForward;
+		}
+
+		vector moveDir = m_vInitialDir;
+		if (!m_bMovingForward)
+			moveDir = -m_vInitialDir;
+
+		vector currentVel = phys.GetVelocity();
+		phys.SetVelocity(Vector(moveDir[0] * m_fSpeed, currentVel[1], moveDir[2] * m_fSpeed));
+	}
+}
