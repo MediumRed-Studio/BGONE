@@ -39,6 +39,8 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	protected ref BGONE_TargetData m_eLastTargetData;
 	protected BGONE_GuidedMissileComponent m_eLastMissile;
 	protected BGONE_GuidedMissileComponent m_eLastMissileSaclos;
+	protected int m_iServerLaunchCount;
+	protected int m_iLastServerAttackProfileIndex = -1;
 
 	protected ref array<ref Shape> m_aDbgCollisionShapes;
 
@@ -369,6 +371,8 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 
 		RemoveListeners();
 		m_eCurrentPlayer = null;
+		m_eLastTargetData = null;
+		m_eLastMissile = null;
 
 		if (hadPlayer && Replication.IsServer() && m_RplComponent && m_RplComponent.GetEntity() == m_eOwner && m_RplComponent.Id().IsValid())
 		{
@@ -391,6 +395,8 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	{
 		RemoveListeners();
 		m_eCurrentPlayer = null;
+		m_eLastTargetData = null;
+		m_eLastMissile = null;
 	}
 
 	//------------------------------------------------------------------------------------------------
@@ -570,50 +576,84 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	//------------------------------------------------------------------------------------------------
 	protected void OnLaunch(int playerID, BaseWeaponComponent weapon, IEntity entity)
 	{
-		if (!m_RplComponent || m_RplComponent.IsRemoteProxy() || !entity)
+		if (!m_RplComponent || !entity)
 			return;
 
 		if (weapon && !DoesWeaponMatchOwner(weapon))
 			return;
 
-		m_eLastMissile = BGONE_GuidedMissileComponent.Cast(entity.FindComponent(BGONE_GuidedMissileComponent));
-		if (!m_eLastMissile)
+		BGONE_GuidedMissileComponent missile = BGONE_GuidedMissileComponent.Cast(entity.FindComponent(BGONE_GuidedMissileComponent));
+		if (!missile)
 			return;
 
-		// If targetdata already set from owner, use that.
-		BGONE_TargetData targetData;
-		if (m_eLastTargetData)
+		if (Replication.IsServer())
 		{
-			targetData = m_eLastTargetData;
-		}
-		else
-		{
-			if (!m_eLockTypeComponent)
-				return;
+			m_eLastMissile = missile;
 
-			targetData = m_eLockTypeComponent.GetCurrentTargetData();
-			if (!targetData)
-				return;
-
-			targetData.launchPos = entity.GetOrigin();
-			targetData.attackProfileIndex = m_iCurrentAttackModeIndex;
-			targetData.armingDistancesIndex = m_iCurrentArmingDistanceIndex;
-			if (m_eTurretController)
+			if (m_eLastTargetData)
 			{
-				RplId turretId = Replication.FindItemId(m_eTurretController);
-				if (!turretId.IsValid() && m_eTurretController.GetOwner())
-				{
-					RplComponent turretRpl = RplComponent.Cast(m_eTurretController.GetOwner().FindComponent(RplComponent));
-					if (turretRpl)
-						turretId = turretRpl.Id();
-				}
-				targetData.turretRplId = turretId;
+				BGONE_TargetData pendingData = m_eLastTargetData;
+				m_eLastTargetData = null;
+				CompleteServerLaunch(pendingData);
+				return;
 			}
+
+			// Dedicated server with remote client owner waits for the owner's RpcAsk_SendTargetData.
+			if (!IsLocallyOwned())
+				return;
+		}
+		else if (!IsLocallyOwned())
+		{
+			return;
 		}
 
-		BGONE_TargetData clonedData = BGONE_TargetData.Cast(targetData.Clone());
-		if (clonedData)
+		if (!m_eLockTypeComponent)
+			return;
+
+		BGONE_TargetData rawTargetData = m_eLockTypeComponent.GetCurrentTargetData();
+		BGONE_TargetData clonedData;
+		if (rawTargetData)
+			clonedData = BGONE_TargetData.Cast(rawTargetData.Clone());
+		if (!clonedData)
+			clonedData = new BGONE_TargetData();
+
+		clonedData.launchPos = entity.GetOrigin();
+		clonedData.attackProfileIndex = m_iCurrentAttackModeIndex;
+		clonedData.armingDistancesIndex = m_iCurrentArmingDistanceIndex;
+		if (m_eTurretController)
+		{
+			RplId turretId = Replication.FindItemId(m_eTurretController);
+			if (!turretId.IsValid() && m_eTurretController.GetOwner())
+			{
+				RplComponent turretRpl = RplComponent.Cast(m_eTurretController.GetOwner().FindComponent(RplComponent));
+				if (turretRpl)
+					turretId = turretRpl.Id();
+			}
+			clonedData.turretRplId = turretId;
+		}
+
+		if (Replication.IsServer())
+			CompleteServerLaunch(clonedData);
+		else
 			Rpc(RpcAsk_SendTargetData, clonedData);
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected void CompleteServerLaunch(BGONE_TargetData targetData)
+	{
+		if (!Replication.IsServer() || !targetData || !m_eLastMissile)
+			return;
+
+		// Save reference to fired missile for saclos fix.
+		m_eLastMissileSaclos = m_eLastMissile;
+
+		m_aDbgCollisionShapes = m_eLastMissile.onLaunched(targetData, this);
+		m_iServerLaunchCount = m_iServerLaunchCount + 1;
+		m_iLastServerAttackProfileIndex = targetData.attackProfileIndex;
+
+		// Consumed last missile and targetdata, reset.
+		m_eLastTargetData = null;
+		m_eLastMissile = null;
 	}
 
 	//------------------------------------------------------------------------------------------------
@@ -668,7 +708,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	[RplRpc(RplChannel.Reliable, RplRcver.Server)]
 	void RpcAsk_SendTargetData(BGONE_TargetData targetData)
 	{
-		if (!targetData)
+		if (!Replication.IsServer() || !targetData)
 			return;
 
 		if (!m_eLastMissile)
@@ -677,14 +717,7 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 			return;
 		}
 
-		// Save reference to fired missile for saclos fix.
-		m_eLastMissileSaclos = m_eLastMissile;
-
-		m_aDbgCollisionShapes = m_eLastMissile.onLaunched(targetData, this);
-
-		// Consumed last missile and targetdata, reset.
-		m_eLastTargetData = null;
-		m_eLastMissile = null;
+		CompleteServerLaunch(targetData);
 	}
 
 	//------------------------------------------------------------------------------------------------
@@ -1056,5 +1089,17 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	int GetSelectedArmingDistanceIndex()
 	{
 		return m_iCurrentArmingDistanceIndex;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	int GetServerLaunchCount()
+	{
+		return m_iServerLaunchCount;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	int GetLastServerAttackProfileIndex()
+	{
+		return m_iLastServerAttackProfileIndex;
 	}
 };

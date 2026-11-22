@@ -15,6 +15,8 @@ class BGONE_BotLauncherHelper
 	static const ResourceName PREFAB_LAUNCHER_VIS = "{82C0AFB409A3AE0B}Prefabs/Weapons/Launchers/BGONE_Launcher_VIS.et";
 	static const ResourceName PREFAB_QA_TURRET = "{6F4B9A21C8E3D074}Prefabs/QA/BGONE_QA_TurretVehicle.et";
 	static const string LAUNCHER_INPUT_CONTEXT = "CharacterWeaponGuidedLauncher";
+	static const int QUERY_SERVER_LAUNCHER_STATE = 7101;
+	static const int QUERY_SERVER_LAUNCH_OUTCOME = 7102;
 
 	//------------------------------------------------------------------------------------------------
 	static BGONE_GuidedMissileLauncherComponent FindLauncherOnEntity(IEntity ent, int depth = 0)
@@ -91,9 +93,13 @@ class BGONE_BotLauncherHelper
 //! Pick up a server-staged launcher near the player, equip it, and verify self-healing binding.
 class BGONE_BotBeat_PickupAndEquipLauncher : BGONE_BotBeat
 {
+	protected static const int SERVER_POLL_MS = 250;
 	protected int m_iLastAttemptMs;
 	protected bool m_bInserted;
 	protected bool m_bEquipped;
+	protected int m_iPendingSeq;
+	protected int m_iLastQueryMs;
+	protected string m_sLastServerDetail;
 
 	//------------------------------------------------------------------------------------------------
 	void BGONE_BotBeat_PickupAndEquipLauncher(string beatName, int timeoutMs)
@@ -108,6 +114,9 @@ class BGONE_BotBeat_PickupAndEquipLauncher : BGONE_BotBeat
 		m_iLastAttemptMs = -1000;
 		m_bInserted = false;
 		m_bEquipped = false;
+		m_iPendingSeq = 0;
+		m_iLastQueryMs = -1000;
+		m_sLastServerDetail = "no query";
 	}
 
 	//------------------------------------------------------------------------------------------------
@@ -176,13 +185,36 @@ class BGONE_BotBeat_PickupAndEquipLauncher : BGONE_BotBeat
 		if (!launcher.IsLauncherBound() || launcher.GetCurrentOwnerEntity() != ch)
 			return EBGONE_BotBeatState.RUNNING;
 
-		run.LogTelemetry(string.Format(
-			"launcher_bound=1 profiles=%1 arming=%2",
-			launcher.GetAvailableAttackProfileCount(), launcher.GetAvailableArmingDistanceCount()));
-		m_sDetail = string.Format(
-			"picked up, equipped, and bound in %1 ms (profiles=%2, arming=%3)",
-			elapsedMs, launcher.GetAvailableAttackProfileCount(), launcher.GetAvailableArmingDistanceCount());
-		return EBGONE_BotBeatState.PASS;
+		if (m_iPendingSeq > 0)
+		{
+			if (!run.HasAnswer(m_iPendingSeq))
+				return EBGONE_BotBeatState.RUNNING;
+
+			bool srvOk = run.AnswerOk(m_iPendingSeq);
+			vector srvVal = run.AnswerValue(m_iPendingSeq);
+			m_sLastServerDetail = run.AnswerDetail(m_iPendingSeq);
+			m_iPendingSeq = 0;
+
+			if (srvOk && srvVal[0] >= 0.5 && srvVal[1] >= 0.5)
+			{
+				run.LogTelemetry(string.Format(
+					"launcher_bound=1 srv_bound=1 srv_rpl_owner=1 profiles=%1 arming=%2",
+					launcher.GetAvailableAttackProfileCount(), launcher.GetAvailableArmingDistanceCount()));
+				m_sDetail = string.Format(
+					"picked up, equipped, and bound on client+server in %1 ms (profiles=%2, arming=%3 | %4)",
+					elapsedMs, launcher.GetAvailableAttackProfileCount(), launcher.GetAvailableArmingDistanceCount(),
+					m_sLastServerDetail);
+				return EBGONE_BotBeatState.PASS;
+			}
+		}
+
+		if (elapsedMs - m_iLastQueryMs >= SERVER_POLL_MS)
+		{
+			m_iLastQueryMs = elapsedMs;
+			m_iPendingSeq = run.Query(BGONE_BotLauncherHelper.QUERY_SERVER_LAUNCHER_STATE);
+		}
+
+		return EBGONE_BotBeatState.RUNNING;
 	}
 
 	//------------------------------------------------------------------------------------------------
@@ -198,8 +230,8 @@ class BGONE_BotBeat_PickupAndEquipLauncher : BGONE_BotBeat
 		}
 
 		return string.Format(
-			"pickup/equip timed out after %1 ms (fixture=%2 inserted=%3 equipped=%4 bound=%5)",
-			m_iTimeoutMs, launcherEnt != null, m_bInserted, m_bEquipped, bound);
+			"pickup/equip timed out after %1 ms (fixture=%2 inserted=%3 equipped=%4 bound=%5 srv=%6)",
+			m_iTimeoutMs, launcherEnt != null, m_bInserted, m_bEquipped, bound, m_sLastServerDetail);
 	}
 }
 
@@ -442,11 +474,151 @@ class BGONE_BotBeat_ExitAdsVerifyLockCleared : BGONE_BotBeat
 }
 
 //------------------------------------------------------------------------------------------------
-//! Teleport into the staged QA turret vehicle and verify the turret-mounted launcher binds cleanly.
+//! Fire the equipped launcher and verify the server receives OnLaunch + RpcAsk_SendTargetData
+//! with the active attack profile index.
+class BGONE_BotBeat_FireAndVerifyServerLaunch : BGONE_BotBeat
+{
+	protected static const int SERVER_POLL_MS = 250;
+	protected static const int RAISE_WAIT_MS = 1200;
+
+	protected bool m_bTriggerPulled;
+	protected bool m_bFireReleased;
+	protected int m_iExpectedProfile;
+	protected int m_iPendingSeq;
+	protected int m_iLastQueryMs;
+	protected string m_sLastServerDetail;
+
+	//------------------------------------------------------------------------------------------------
+	void BGONE_BotBeat_FireAndVerifyServerLaunch(string beatName, int timeoutMs)
+	{
+		Setup(beatName, timeoutMs);
+		SetFailSay("Server did not confirm guided missile launch and target-data delivery.");
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override void OnStart(BGONE_BotRun run)
+	{
+		m_bTriggerPulled = false;
+		m_bFireReleased = false;
+		m_iExpectedProfile = -1;
+		m_iPendingSeq = 0;
+		m_iLastQueryMs = -1000;
+		m_sLastServerDetail = "no query";
+
+		IEntity launcherEnt = run.FixtureEntity();
+		if (launcherEnt)
+		{
+			BGONE_GuidedMissileLauncherComponent launcher = BGONE_BotLauncherHelper.FindLauncherOnEntity(launcherEnt);
+			if (launcher)
+				m_iExpectedProfile = launcher.GetSelectedAttackProfileIndex();
+		}
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override EBGONE_BotBeatState Tick(BGONE_BotRun run, int elapsedMs)
+	{
+		SCR_CharacterControllerComponent ctrl = run.CharacterController();
+		IEntity launcherEnt = run.FixtureEntity();
+		if (!ctrl || !launcherEnt)
+		{
+			m_sDetail = "missing character controller or launcher fixture";
+			return EBGONE_BotBeatState.FAIL;
+		}
+
+		ctrl.SetWeaponRaised(true);
+
+		bool muzzleEmpty = false;
+		BaseWeaponComponent wep = BaseWeaponComponent.Cast(launcherEnt.FindComponent(BaseWeaponComponent));
+		if (wep)
+		{
+			BaseMuzzleComponent muzzle = wep.GetCurrentMuzzle();
+			if (muzzle && muzzle.GetAmmoCount() <= 0)
+				muzzleEmpty = true;
+		}
+
+		if (!muzzleEmpty && (ctrl.IsWeaponRaised() || elapsedMs >= RAISE_WAIT_MS))
+		{
+			ctrl.SetFireWeaponWanted(true);
+			BGONE_BotInput.Hold("CharacterFire", 1.0);
+			m_bTriggerPulled = true;
+		}
+		else if (muzzleEmpty && !m_bFireReleased)
+		{
+			ctrl.SetFireWeaponWanted(false);
+			BGONE_BotInput.Release("CharacterFire");
+			m_bFireReleased = true;
+		}
+
+		if (m_iPendingSeq > 0)
+		{
+			if (!run.HasAnswer(m_iPendingSeq))
+				return EBGONE_BotBeatState.RUNNING;
+
+			bool srvOk = run.AnswerOk(m_iPendingSeq);
+			vector srvVal = run.AnswerValue(m_iPendingSeq);
+			m_sLastServerDetail = run.AnswerDetail(m_iPendingSeq);
+			m_iPendingSeq = 0;
+
+			int srvLaunchCount = Math.Round(srvVal[0]);
+			int srvProfileIdx = Math.Round(srvVal[1]);
+			if (srvOk && srvLaunchCount >= 1)
+			{
+				ctrl.SetFireWeaponWanted(false);
+				BGONE_BotInput.Release("CharacterFire");
+
+				if (m_iExpectedProfile >= 0 && srvProfileIdx != m_iExpectedProfile)
+				{
+					m_sDetail = string.Format(
+						"server launch profile mismatch (expected=%1 actual=%2 | %3)",
+						m_iExpectedProfile, srvProfileIdx, m_sLastServerDetail);
+					return EBGONE_BotBeatState.FAIL;
+				}
+
+				run.LogTelemetry(string.Format(
+					"srv_launch_count=%1 srv_launch_profile=%2 expected_profile=%3",
+					srvLaunchCount, srvProfileIdx, m_iExpectedProfile));
+				m_sDetail = string.Format(
+					"server confirmed guided launch in %1 ms (launches=%2 profile=%3 | %4)",
+					elapsedMs, srvLaunchCount, srvProfileIdx, m_sLastServerDetail);
+				return EBGONE_BotBeatState.PASS;
+			}
+		}
+
+		if (m_bTriggerPulled && (elapsedMs - m_iLastQueryMs >= SERVER_POLL_MS))
+		{
+			m_iLastQueryMs = elapsedMs;
+			m_iPendingSeq = run.Query(BGONE_BotLauncherHelper.QUERY_SERVER_LAUNCH_OUTCOME);
+		}
+
+		return EBGONE_BotBeatState.RUNNING;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override string TimeoutDetail(BGONE_BotRun run)
+	{
+		SCR_CharacterControllerComponent ctrl = run.CharacterController();
+		if (ctrl)
+			ctrl.SetFireWeaponWanted(false);
+
+		BGONE_BotInput.Release("CharacterFire");
+
+		return string.Format(
+			"server launch verification timed out after %1 ms (trigger=%2 expectedProfile=%3 srv=%4)",
+			m_iTimeoutMs, m_bTriggerPulled, m_iExpectedProfile, m_sLastServerDetail);
+	}
+}
+
+//------------------------------------------------------------------------------------------------
+//! Teleport into the staged QA turret vehicle and verify the turret-mounted launcher binds cleanly
+//! on both client and server.
 class BGONE_BotBeat_MountTurret : BGONE_BotBeat
 {
+	protected static const int SERVER_POLL_MS = 250;
 	protected int m_iLastAttemptMs;
 	protected bool m_bMounted;
+	protected int m_iPendingSeq;
+	protected int m_iLastQueryMs;
+	protected string m_sLastServerDetail;
 
 	//------------------------------------------------------------------------------------------------
 	void BGONE_BotBeat_MountTurret(string beatName, int timeoutMs)
@@ -460,6 +632,9 @@ class BGONE_BotBeat_MountTurret : BGONE_BotBeat
 	{
 		m_iLastAttemptMs = -1000;
 		m_bMounted = false;
+		m_iPendingSeq = 0;
+		m_iLastQueryMs = -1000;
+		m_sLastServerDetail = "no query";
 	}
 
 	//------------------------------------------------------------------------------------------------
@@ -512,10 +687,35 @@ class BGONE_BotBeat_MountTurret : BGONE_BotBeat
 		if (!launcher.IsLauncherBound() || launcher.GetCurrentOwnerEntity() != ch)
 			return EBGONE_BotBeatState.RUNNING;
 
-		run.LogTelemetry(string.Format(
-			"turret_bound=1 profiles=%1", launcher.GetAvailableAttackProfileCount()));
-		m_sDetail = string.Format("mounted turret and bound launcher in %1 ms", elapsedMs);
-		return EBGONE_BotBeatState.PASS;
+		if (m_iPendingSeq > 0)
+		{
+			if (!run.HasAnswer(m_iPendingSeq))
+				return EBGONE_BotBeatState.RUNNING;
+
+			bool srvOk = run.AnswerOk(m_iPendingSeq);
+			vector srvVal = run.AnswerValue(m_iPendingSeq);
+			m_sLastServerDetail = run.AnswerDetail(m_iPendingSeq);
+			m_iPendingSeq = 0;
+
+			if (srvOk && srvVal[0] >= 0.5 && srvVal[1] >= 0.5)
+			{
+				run.LogTelemetry(string.Format(
+					"turret_bound=1 srv_turret_bound=1 srv_rpl_owner=1 profiles=%1",
+					launcher.GetAvailableAttackProfileCount()));
+				m_sDetail = string.Format(
+					"mounted turret and bound launcher on client+server in %1 ms (%2)",
+					elapsedMs, m_sLastServerDetail);
+				return EBGONE_BotBeatState.PASS;
+			}
+		}
+
+		if (elapsedMs - m_iLastQueryMs >= SERVER_POLL_MS)
+		{
+			m_iLastQueryMs = elapsedMs;
+			m_iPendingSeq = run.Query(BGONE_BotLauncherHelper.QUERY_SERVER_LAUNCHER_STATE);
+		}
+
+		return EBGONE_BotBeatState.RUNNING;
 	}
 
 	//------------------------------------------------------------------------------------------------
@@ -531,8 +731,8 @@ class BGONE_BotBeat_MountTurret : BGONE_BotBeat
 		}
 
 		return string.Format(
-			"mount turret timed out after %1 ms (fixture=%2 mounted=%3 bound=%4)",
-			m_iTimeoutMs, turretEnt != null, m_bMounted, bound);
+			"mount turret timed out after %1 ms (fixture=%2 mounted=%3 bound=%4 srv=%5)",
+			m_iTimeoutMs, turretEnt != null, m_bMounted, bound, m_sLastServerDetail);
 	}
 }
 
@@ -654,11 +854,16 @@ class BGONE_BotBeat_TurretAdsAndLock : BGONE_BotBeat
 }
 
 //------------------------------------------------------------------------------------------------
-//! Dismount turret via teleport and verify lock, listeners, and occupant references clear cleanly.
+//! Dismount turret via teleport and verify lock, listeners, occupant references, and server Rpl
+//! ownership clear cleanly on both client and server.
 class BGONE_BotBeat_DismountTurretVerifyClean : BGONE_BotBeat
 {
+	protected static const int SERVER_POLL_MS = 250;
 	protected int m_iLastAttemptMs;
 	protected bool m_bDismounted;
+	protected int m_iPendingSeq;
+	protected int m_iLastQueryMs;
+	protected string m_sLastServerDetail;
 
 	//------------------------------------------------------------------------------------------------
 	void BGONE_BotBeat_DismountTurretVerifyClean(string beatName, int timeoutMs)
@@ -672,6 +877,9 @@ class BGONE_BotBeat_DismountTurretVerifyClean : BGONE_BotBeat
 	{
 		m_iLastAttemptMs = -1000;
 		m_bDismounted = false;
+		m_iPendingSeq = 0;
+		m_iLastQueryMs = -1000;
+		m_sLastServerDetail = "no query";
 	}
 
 	//------------------------------------------------------------------------------------------------
@@ -714,9 +922,33 @@ class BGONE_BotBeat_DismountTurretVerifyClean : BGONE_BotBeat
 		if (launcher.IsLocking() || launcher.IsLauncherBound() || launcher.GetCurrentOwnerEntity() != null)
 			return EBGONE_BotBeatState.RUNNING;
 
-		run.LogTelemetry("turret_dismount_clean=1");
-		m_sDetail = string.Format("dismounted turret cleanly in %1 ms (locking=0 bound=0 owner=null)", elapsedMs);
-		return EBGONE_BotBeatState.PASS;
+		if (m_iPendingSeq > 0)
+		{
+			if (!run.HasAnswer(m_iPendingSeq))
+				return EBGONE_BotBeatState.RUNNING;
+
+			bool srvOk = run.AnswerOk(m_iPendingSeq);
+			vector srvVal = run.AnswerValue(m_iPendingSeq);
+			m_sLastServerDetail = run.AnswerDetail(m_iPendingSeq);
+			m_iPendingSeq = 0;
+
+			if (srvOk && srvVal[2] >= 0.5)
+			{
+				run.LogTelemetry("turret_dismount_clean=1 srv_turret_unbound=1");
+				m_sDetail = string.Format(
+					"dismounted turret cleanly on client+server in %1 ms (%2)",
+					elapsedMs, m_sLastServerDetail);
+				return EBGONE_BotBeatState.PASS;
+			}
+		}
+
+		if (elapsedMs - m_iLastQueryMs >= SERVER_POLL_MS)
+		{
+			m_iLastQueryMs = elapsedMs;
+			m_iPendingSeq = run.Query(BGONE_BotLauncherHelper.QUERY_SERVER_LAUNCHER_STATE);
+		}
+
+		return EBGONE_BotBeatState.RUNNING;
 	}
 
 	//------------------------------------------------------------------------------------------------
@@ -736,8 +968,8 @@ class BGONE_BotBeat_DismountTurretVerifyClean : BGONE_BotBeat
 		}
 
 		return string.Format(
-			"dismount cleanup timed out after %1 ms (dismounted=%2 locking=%3 bound=%4)",
-			m_iTimeoutMs, m_bDismounted, lockingNow, boundNow);
+			"dismount cleanup timed out after %1 ms (dismounted=%2 locking=%3 bound=%4 srv=%5)",
+			m_iTimeoutMs, m_bDismounted, lockingNow, boundNow, m_sLastServerDetail);
 	}
 }
 
@@ -753,13 +985,14 @@ modded class SCR_PlayerController : PlayerController
 		if (scenarioName == BGONE_SCENARIO_LAUNCHER_PICKUP)
 		{
 			BGONE_BotRun run = new BGONE_BotRun(scenarioName);
-			run.m_sTitle = "Launcher pickup, muzzle profile discovery, ADS context & lock teardown";
-			run.m_sSummary = "Picked up BGONE_Launcher_VIS, verified MuzzleInMagComponent profiles, cycled attack mode, verified ADS context and lock teardown.";
+			run.m_sTitle = "Launcher pickup, server ownership/binding, profiles, ADS teardown & server launch";
+			run.m_sSummary = "Picked up BGONE_Launcher_VIS, verified client+server binding & Rpl ownership, cycled attack mode, verified ADS context & lock teardown, and confirmed server guided launch.";
 			run.Add(new BGONE_BotBeat_WaitDeployed("wait_deployed", 15000));
 			run.Add(new BGONE_BotBeat_PickupAndEquipLauncher("pickup_and_equip_launcher", 20000));
 			run.Add(new BGONE_BotBeat_VerifyProfilesAndCycle("verify_profiles_and_cycle", 10000));
 			run.Add(new BGONE_BotBeat_VerifyAdsContextAndLock("verify_ads_context_and_lock", 10000));
 			run.Add(new BGONE_BotBeat_ExitAdsVerifyLockCleared("exit_ads_verify_lock_cleared", 10000));
+			run.Add(new BGONE_BotBeat_FireAndVerifyServerLaunch("fire_and_verify_server_launch", 15000));
 			return run;
 		}
 
@@ -878,5 +1111,82 @@ modded class SCR_PlayerController : PlayerController
 
 		detail = string.Format("staged %1 at %2", prefab, fixturePos);
 		return 0;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	override protected bool BGONE_BotAnswerQuery(int queryId, out int ok, out vector val, out string detail)
+	{
+		if (queryId != BGONE_BotLauncherHelper.QUERY_SERVER_LAUNCHER_STATE
+			&& queryId != BGONE_BotLauncherHelper.QUERY_SERVER_LAUNCH_OUTCOME)
+		{
+			return super.BGONE_BotAnswerQuery(queryId, ok, val, detail);
+		}
+
+		ok = 0;
+		val = vector.Zero;
+
+		if (!m_BGONE_ServerFixture)
+		{
+			detail = "no staged fixture on server";
+			return true;
+		}
+
+		BGONE_GuidedMissileLauncherComponent srvLauncher = BGONE_BotLauncherHelper.FindLauncherOnEntity(m_BGONE_ServerFixture);
+		if (!srvLauncher)
+		{
+			detail = "staged fixture missing BGONE_GuidedMissileLauncherComponent on server";
+			return true;
+		}
+
+		if (queryId == BGONE_BotLauncherHelper.QUERY_SERVER_LAUNCH_OUTCOME)
+		{
+			int launchCount = srvLauncher.GetServerLaunchCount();
+			int profileIdx = srvLauncher.GetLastServerAttackProfileIndex();
+			float isBound = 0.0;
+			if (srvLauncher.IsLauncherBound())
+				isBound = 1.0;
+
+			ok = 1;
+			val = Vector(launchCount, profileIdx, isBound);
+			detail = string.Format("srvLaunches=%1 srvProfile=%2 srvBound=%3", launchCount, profileIdx, isBound);
+			return true;
+		}
+
+		IEntity srvCh = BGONE_BotControlledEntityServer(GetPlayerId());
+		IEntity srvOwnerEnt = srvLauncher.GetCurrentOwnerEntity();
+
+		float srvBound = 0.0;
+		if (srvLauncher.IsLauncherBound() && srvCh && srvOwnerEnt == srvCh)
+			srvBound = 1.0;
+
+		RplComponent launcherRpl;
+		IEntity launcherOwnerEnt = srvLauncher.GetOwner();
+		if (launcherOwnerEnt)
+			launcherRpl = RplComponent.Cast(launcherOwnerEnt.FindComponent(RplComponent));
+
+		RplComponent charRpl;
+		if (srvCh)
+			charRpl = RplComponent.Cast(srvCh.FindComponent(RplComponent));
+
+		float srvOwnerMatch = 0.0;
+		if (launcherRpl && charRpl && launcherRpl.Id().IsValid() && charRpl.Id().IsValid())
+		{
+			if (Replication.FindOwner(launcherRpl.Id()) == Replication.FindOwner(charRpl.Id()))
+				srvOwnerMatch = 1.0;
+		}
+
+		float srvUnboundClean = 0.0;
+		if (!srvLauncher.IsLauncherBound() && srvOwnerEnt == null)
+		{
+			if (!launcherRpl || !launcherRpl.Id().IsValid() || Replication.FindOwner(launcherRpl.Id()) == RplIdentity.Local())
+				srvUnboundClean = 1.0;
+		}
+
+		ok = 1;
+		val = Vector(srvBound, srvOwnerMatch, srvUnboundClean);
+		detail = string.Format(
+			"srvBound=%1 srvRplOwnerMatch=%2 srvUnboundClean=%3",
+			srvBound, srvOwnerMatch, srvUnboundClean);
+		return true;
 	}
 }
