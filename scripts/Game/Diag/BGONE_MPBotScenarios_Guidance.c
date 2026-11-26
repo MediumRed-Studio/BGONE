@@ -2365,11 +2365,12 @@ modded class SCR_PlayerController : PlayerController
 	}
 
 	//------------------------------------------------------------------------------------------------
-	protected vector BGONE_GuidanceResolveCorridorDir(
+	protected bool BGONE_GuidanceResolveCorridorDir(
 		BaseWorld world,
 		IEntity character,
 		float checkDist,
 		float lateralMargin,
+		out vector outDir,
 		out float outResolvedDist)
 	{
 		// Prioritize 120/150/110/160 deg first so we stay cleanly off the (128,128) map center on 135 deg.
@@ -2379,8 +2380,9 @@ modded class SCR_PlayerController : PlayerController
 			vector cand = vector.FromYaw(preferredYaws[i]);
 			if (BGONE_GuidanceProbeCorridor(world, character, cand, checkDist, lateralMargin))
 			{
+				outDir = cand;
 				outResolvedDist = checkDist;
-				return cand;
+				return true;
 			}
 		}
 
@@ -2389,17 +2391,19 @@ modded class SCR_PlayerController : PlayerController
 			vector cand = vector.FromYaw(yaw);
 			if (BGONE_GuidanceProbeCorridor(world, character, cand, checkDist, lateralMargin))
 			{
+				outDir = cand;
 				outResolvedDist = checkDist;
-				return cand;
+				return true;
 			}
 		}
 
 		// Step down distance if the map is compact, returning exact verified distance.
 		if (checkDist > 170.0)
-			return BGONE_GuidanceResolveCorridorDir(world, character, checkDist - 30.0, lateralMargin, outResolvedDist);
+			return BGONE_GuidanceResolveCorridorDir(world, character, Math.Max(160.0, checkDist - 30.0), lateralMargin, outDir, outResolvedDist);
 
-		outResolvedDist = 170.0;
-		return vector.FromYaw(120.0);
+		outDir = vector.Zero;
+		outResolvedDist = 0.0;
+		return false;
 	}
 
 	//------------------------------------------------------------------------------------------------
@@ -2522,8 +2526,16 @@ modded class SCR_PlayerController : PlayerController
 			probeDist = 250.0;
 		}
 
-		float resolvedDist = probeDist;
-		vector corridorDir = BGONE_GuidanceResolveCorridorDir(world, character, probeDist, lateralMargin, resolvedDist);
+		vector corridorDir = vector.Zero;
+		float resolvedDist = 0.0;
+		if (!BGONE_GuidanceResolveCorridorDir(world, character, probeDist, lateralMargin, corridorDir, resolvedDist))
+		{
+			BGONE_GuidanceBotCoordinator.MarkClientEnded(1, 0);
+			detail = string.Format(
+				"no verified solid firing corridor found for %1 (probeDist=%2 lateralMargin=%3)",
+				scenarioName, probeDist, lateralMargin);
+			return 26;
+		}
 		float broadsideYaw = corridorDir.ToYaw() + 90.0;
 		vector rightDir = BGONE_GuidanceBotHelper.RightVectorXZ(corridorDir);
 		vector shooterOrigin = character.GetOrigin();
