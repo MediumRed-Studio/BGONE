@@ -51,9 +51,14 @@ class BGONE_AttackProfile_TOP : BGONE_AttackProfile_Base
 			case 0:
 			{
 				if (distanceFromShooter < 10.0)
+				{
 					targetData.targetPosition = targetData.targetPosition + vector.Up * distanceToTarget * 2.0;
+				}
 				else
+				{
 					m_iCurrentStage = 1;
+					targetData.targetPosition = targetData.targetPosition + vector.Up * distanceToTarget * 1.5;
+				}
 				break;
 			}
 			// Climb

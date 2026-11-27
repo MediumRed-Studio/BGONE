@@ -12,6 +12,11 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	static const float PROXY_MAX_EXTRAPOLATION_SEC = 0.25;
 	static const int LOCAL_COPY_CLEANUP_DELAY_MS = 20;
 
+	// Brief tube-clearance delay before guidance/engine takes over. At 150 m/s this is
+	// ~22.5 m of unguided flight (>2x SafetyDistance) while limiting gravity drop to ~0.11 m,
+	// so standing and crouched flat-ground TOP shots still loft instead of hitting terrain.
+	protected static const float GUIDANCE_ARM_DELAY_SEC = 0.15;
+
 	[Attribute("", UIWidgets.Object, desc: "Script Responsible For Updating The Target During Flight - Also Handles Proximity Detonation", category: "BGONE")]
 	protected ref BGONE_SeekerType_Base m_eSeekerTypeComponent;
 
@@ -586,8 +591,8 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 			m_vPreviousTargetPos = m_eCurrentTargetData.targetPosition;
 		}
 
-		// Pass Data To Engine, moving missile.
-		if (m_fFlightTime > 0.5 && m_eMissileEngineComponent)
+		// Pass Data To Engine, moving missile after brief tube-clearance arm delay.
+		if (m_fFlightTime > GUIDANCE_ARM_DELAY_SEC && m_eMissileEngineComponent)
 		{
 			vector engineTargetPos = m_eCurrentTargetData.targetPosition;
 			if (engineTargetPos == vector.Zero)
