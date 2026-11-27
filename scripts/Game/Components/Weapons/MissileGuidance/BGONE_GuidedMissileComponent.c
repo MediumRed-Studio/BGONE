@@ -12,6 +12,11 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	static const float PROXY_MAX_EXTRAPOLATION_SEC = 0.25;
 	static const int LOCAL_COPY_CLEANUP_DELAY_MS = 20;
 
+	// Brief tube-clearance delay before guidance/engine takes over. At 150 m/s this is
+	// ~22.5 m of unguided flight (>2x SafetyDistance) while limiting gravity drop to ~0.11 m,
+	// so standing and crouched flat-ground TOP shots still loft instead of hitting terrain.
+	protected static const float GUIDANCE_ARM_DELAY_SEC = 0.15;
+
 	[Attribute("", UIWidgets.Object, desc: "Script Responsible For Updating The Target During Flight - Also Handles Proximity Detonation", category: "BGONE")]
 	protected ref BGONE_SeekerType_Base m_eSeekerTypeComponent;
 
@@ -60,6 +65,12 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	protected float m_fTravelDistanceMeters = 0.0;
 	protected float m_fLastSpeed = 0.0;
 	protected vector m_vLastKnownOrigin = vector.Zero;
+	protected float m_fMaxAltitude = 0.0;
+	protected int m_iPeakAttackStage = 0;
+	protected RplId m_TargetRplId;
+	protected float m_fLaunchYawChange = 0.0;
+	protected float m_fLaunchPitchChange = 0.0;
+	protected bool m_bSeekerSelfDestructed = false;
 
 	protected float m_fSaclosFixNextUpdateTime = 0;
 	protected float m_fSaclosFixUpdateInterval = 50;
@@ -87,10 +98,19 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	protected static int s_iLastSnapCorrectionCount;
 	protected static int s_iLastProxyFrameTicks;
 	protected static vector s_vLastOrigin;
+	protected static float s_fLastMaxAltitude;
+	protected static int s_iLastPeakAttackStage;
+	protected static RplId s_LastTrackedTargetRplId;
+	protected static float s_fLastYawChange;
+	protected static float s_fLastPitchChange;
+	protected static vector s_vLastLaunchOrigin;
+	protected static vector s_vLastLaunchForward;
+	protected static bool s_bLastSelfDestructed;
 
 	//------------------------------------------------------------------------------------------------
 	override void OnPostInit(IEntity owner)
 	{
+		m_TargetRplId = RplId.Invalid();
 		SetEventMask(owner, EntityEvent.INIT | EntityEvent.FRAME);
 	}
 
@@ -379,6 +399,14 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		s_iLastSnapCorrectionCount = m_iSnapCorrectionCount;
 		s_iLastProxyFrameTicks = m_iProxyFrameTicks;
 		s_vLastOrigin = m_vLastKnownOrigin;
+		s_fLastMaxAltitude = m_fMaxAltitude;
+		s_iLastPeakAttackStage = m_iPeakAttackStage;
+		s_LastTrackedTargetRplId = m_TargetRplId;
+		s_fLastYawChange = m_fLaunchYawChange;
+		s_fLastPitchChange = m_fLaunchPitchChange;
+		s_vLastLaunchOrigin = m_vLaunchOrigin;
+		s_vLastLaunchForward = m_vLaunchForward;
+		s_bLastSelfDestructed = m_bSeekerSelfDestructed;
 	}
 
 	//------------------------------------------------------------------------------------------------
@@ -438,6 +466,12 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		m_iDetonationCount = 0;
 		m_fTravelDistanceMeters = 0.0;
 		m_fLastSpeed = GetCurrentVelocity().Length();
+		m_fMaxAltitude = m_eOwner.GetOrigin()[1];
+		m_iPeakAttackStage = 0;
+		m_TargetRplId = m_eCurrentTargetData.targetRplId;
+		m_fLaunchYawChange = m_eCurrentTargetData.yawChange;
+		m_fLaunchPitchChange = m_eCurrentTargetData.pitchChange;
+		m_bSeekerSelfDestructed = false;
 		m_bGuidanceActive = true;
 
 		// Pre-loaded tube rounds (M72A3-based) require EntityFlags.ACTIVE + EntityEvent.FRAME explicitly on launch.
@@ -491,6 +525,9 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 
 		vector currentOrigin = m_eOwner.GetOrigin();
 		m_vLastKnownOrigin = currentOrigin;
+		if (currentOrigin[1] > m_fMaxAltitude)
+			m_fMaxAltitude = currentOrigin[1];
+
 		float distFromLaunch = vector.Distance(m_vLaunchOrigin, currentOrigin);
 		if (distFromLaunch > m_fTravelDistanceMeters)
 			m_fTravelDistanceMeters = distFromLaunch;
@@ -500,8 +537,12 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		if (!m_eCurrentTargetData)
 			return;
 
+		if (m_eSeekerTypeComponent.WasSelfDestructed())
+			m_bSeekerSelfDestructed = true;
+
 		// SACLOS fix
-		if (m_eSeekerTypeComponent.Type() == BGONE_SeekerType_SACLOS)
+		bool isSaclosSeeker = (m_eSeekerTypeComponent.Type() == BGONE_SeekerType_SACLOS);
+		if (isSaclosSeeker)
 		{
 			BaseWorld world = GetGame().GetWorld();
 			if (world && world.GetWorldTime() > m_fSaclosFixNextUpdateTime)
@@ -513,9 +554,10 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		}
 
 		// Use last target position if seeker lost track of target.
+		// SACLOS intentionally uses vector.Zero to continue straight ahead rather than turning back.
 		if (m_eCurrentTargetData.targetPosition != vector.Zero)
 			m_vLastTargetPosition = m_eCurrentTargetData.targetPosition;
-		else if (m_vLastTargetPosition != vector.Zero)
+		else if (!isSaclosSeeker && m_vLastTargetPosition != vector.Zero)
 			m_eCurrentTargetData.targetPosition = m_vLastTargetPosition;
 
 		if (m_eCurrentTargetData.detonated > 0)
@@ -533,6 +575,10 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		if (!m_eCurrentTargetData)
 			return;
 
+		BGONE_AttackProfile_TOP topProfile = BGONE_AttackProfile_TOP.Cast(m_eAttackProfileComponents[profileIdx]);
+		if (topProfile && topProfile.GetCurrentStage() > m_iPeakAttackStage)
+			m_iPeakAttackStage = topProfile.GetCurrentStage();
+
 		if (m_bDebugEnabled)
 		{
 			if (!m_aDbgCollisionShapes)
@@ -545,8 +591,8 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 			m_vPreviousTargetPos = m_eCurrentTargetData.targetPosition;
 		}
 
-		// Pass Data To Engine, moving missile.
-		if (m_fFlightTime > 0.5 && m_eMissileEngineComponent)
+		// Pass Data To Engine, moving missile after brief tube-clearance arm delay.
+		if (m_fFlightTime > GUIDANCE_ARM_DELAY_SEC && m_eMissileEngineComponent)
 		{
 			vector engineTargetPos = m_eCurrentTargetData.targetPosition;
 			if (engineTargetPos == vector.Zero)
@@ -858,6 +904,12 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	}
 
 	//------------------------------------------------------------------------------------------------
+	bool IsSaclosGuided()
+	{
+		return m_eSeekerTypeComponent && m_eSeekerTypeComponent.Type() == BGONE_SeekerType_SACLOS;
+	}
+
+	//------------------------------------------------------------------------------------------------
 	// Read-only instance telemetry getters.
 	float GetFlightTime() { return m_fFlightTime; }
 	float GetTravelDistanceMeters() { return m_fTravelDistanceMeters; }
@@ -872,6 +924,14 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	int GetSnapCorrectionCount() { return m_iSnapCorrectionCount; }
 	int GetProxyFrameTicks() { return m_iProxyFrameTicks; }
 	vector GetLastKnownOrigin() { return m_vLastKnownOrigin; }
+	float GetMaxAltitude() { return m_fMaxAltitude; }
+	int GetPeakAttackStage() { return m_iPeakAttackStage; }
+	RplId GetTargetRplId() { return m_TargetRplId; }
+	float GetLaunchYawChange() { return m_fLaunchYawChange; }
+	float GetLaunchPitchChange() { return m_fLaunchPitchChange; }
+	vector GetLaunchOrigin() { return m_vLaunchOrigin; }
+	vector GetLaunchForward() { return m_vLaunchForward; }
+	bool WasSelfDestructed() { return m_bSeekerSelfDestructed; }
 
 	//------------------------------------------------------------------------------------------------
 	RplId GetMissileRplId()
@@ -899,6 +959,22 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 	static int GetLastTrackedSnapCorrectionCount() { return s_iLastSnapCorrectionCount; }
 	static int GetLastTrackedProxyFrameTicks() { return s_iLastProxyFrameTicks; }
 	static vector GetLastTrackedOrigin() { return s_vLastOrigin; }
+	static float GetLastTrackedMaxAltitude() { return s_fLastMaxAltitude; }
+	static int GetLastTrackedPeakAttackStage() { return s_iLastPeakAttackStage; }
+	static float GetLastTrackedYawChange() { return s_fLastYawChange; }
+	static float GetLastTrackedPitchChange() { return s_fLastPitchChange; }
+	static vector GetLastTrackedLaunchOrigin() { return s_vLastLaunchOrigin; }
+	static vector GetLastTrackedLaunchForward() { return s_vLastLaunchForward; }
+	static bool WasLastTrackedSelfDestructed() { return s_bLastSelfDestructed; }
+
+	//------------------------------------------------------------------------------------------------
+	static RplId GetLastTrackedTargetRplId()
+	{
+		if (!s_bHasLastTracked)
+			return RplId.Invalid();
+
+		return s_LastTrackedTargetRplId;
+	}
 
 	//------------------------------------------------------------------------------------------------
 	static RplId GetLastMissileRplId()
@@ -928,6 +1004,14 @@ class BGONE_GuidedMissileComponent : ScriptComponent
 		s_iLastSnapCorrectionCount = 0;
 		s_iLastProxyFrameTicks = 0;
 		s_vLastOrigin = vector.Zero;
+		s_fLastMaxAltitude = 0.0;
+		s_iLastPeakAttackStage = 0;
+		s_LastTrackedTargetRplId = RplId.Invalid();
+		s_fLastYawChange = 0.0;
+		s_fLastPitchChange = 0.0;
+		s_vLastLaunchOrigin = vector.Zero;
+		s_vLastLaunchForward = vector.Zero;
+		s_bLastSelfDestructed = false;
 	}
 
 	//------------------------------------------------------------------------------------------------

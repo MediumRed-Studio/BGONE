@@ -8,15 +8,15 @@ FrameWidgetClass {
     OffsetLeft 0
     PositionY 0
     OffsetTop 0
-    SizeX 1920
-    OffsetRight -1920
-    SizeY 1080
-    OffsetBottom -1080
+    SizeX 46
+    OffsetRight -46
+    SizeY 46
+    OffsetBottom -46
    }
    AllowWidthOverride 1
-   WidthOverride 1920
+   WidthOverride 46
    AllowHeightOverride 1
-   HeightOverride 1280
+   HeightOverride 46
    {
     FrameWidgetClass "{60667104A87DDE93}" {
      Name "Frame0"

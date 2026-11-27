@@ -22,6 +22,11 @@ class BGONE_SeekerType_Base
 	{
 		return targetData;
 	}
+
+	bool WasSelfDestructed()
+	{
+		return false;
+	}
 	
 	protected float GetDistanceFromLaunch(BGONE_TargetData targetData)
 	{

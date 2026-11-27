@@ -5,10 +5,11 @@
     "Single-addon layout: addon.gproj lives at the worktree root (ID 'BGONE', GUID '5F1EE615E7AE3106').",
     "External staging junction C:\\wt\\.bgone-stage\\<sha1-8>\\Addons\\BGONE -> <worktree> supplies -addonsDir",
     "so sibling worktrees under C:\\wt are never scanned and no symlink is created inside the checkout.",
-    "Both stable and exp tracks target Reforger 1.9.0.37 (retail server + retail client pair for MP)."
+    "exp is the default track and targets the matched Reforger 1.9.0.42 trio (retail server + retail client pair for MP).",
+    "stable remains pinned at 1.9.0.37 until the stable server matches, so mismatched stable binaries cannot launch accidentally."
   ],
   "defaults": {
-    "targetEngine": "stable",
+    "targetEngine": "exp",
     "module": "BGONE",
     "addonId": "BGONE",
     "addonGuid": "5F1EE615E7AE3106",
@@ -221,7 +222,7 @@
     },
     "exp": {
       "label": "exp",
-      "validatedVersion": "1.9.0.37",
+      "validatedVersion": "1.9.0.42",
       "exeCandidates": [
         "Z:\\SteamLibrary\\steamapps\\common\\Arma Reforger Experimental Tools\\Workbench\\ArmaReforgerWorkbenchSteamDiag.exe",
         "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Arma Reforger Experimental Tools\\Workbench\\ArmaReforgerWorkbenchSteamDiag.exe"

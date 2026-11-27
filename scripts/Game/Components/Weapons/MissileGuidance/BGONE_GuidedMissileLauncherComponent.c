@@ -38,7 +38,9 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 
 	protected ref BGONE_TargetData m_eLastTargetData;
 	protected BGONE_GuidedMissileComponent m_eLastMissile;
-	protected BGONE_GuidedMissileComponent m_eLastMissileSaclos;
+	protected ref array<BGONE_GuidedMissileComponent> m_aActiveSaclosMissiles = {};
+	protected float m_fNextSaclosPollTime = 0.0;
+	static const float SACLOS_POLL_INTERVAL_MS = 50.0;
 	protected int m_iServerLaunchCount;
 	protected int m_iLastServerAttackProfileIndex = -1;
 
@@ -151,9 +153,14 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	{
 		RemoveListeners();
 		UnhookTurretEvents();
+		if (m_eLockTypeComponent)
+			m_eLockTypeComponent.OnCleanup();
+
 		m_eCurrentPlayer = null;
 		m_eLastMissile = null;
-		m_eLastMissileSaclos = null;
+		if (m_aActiveSaclosMissiles)
+			m_aActiveSaclosMissiles.Clear();
+
 		m_eLastTargetData = null;
 		m_aDbgCollisionShapes = null;
 		m_LastInspectedMagazine = null;
@@ -652,13 +659,77 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	}
 
 	//------------------------------------------------------------------------------------------------
+	protected void PruneActiveSaclosMissiles()
+	{
+		if (!m_aActiveSaclosMissiles)
+		{
+			m_aActiveSaclosMissiles = {};
+			return;
+		}
+
+		for (int i = m_aActiveSaclosMissiles.Count() - 1; i >= 0; i--)
+		{
+			BGONE_GuidedMissileComponent missile = m_aActiveSaclosMissiles[i];
+			if (!missile || missile.IsDetonated())
+				m_aActiveSaclosMissiles.Remove(i);
+		}
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected bool ResolveLocalSaclosAim(out vector aimDir, out vector aimPos)
+	{
+		aimDir = vector.Zero;
+		aimPos = vector.Zero;
+
+		if (m_eTurretController)
+		{
+			BaseSightsComponent sights = m_eTurretController.GetCurrentSights();
+			if (!sights)
+				return false;
+
+			aimDir = sights.GetSightsDirectionUntransformed();
+			aimPos = sights.GetSightsRearPosition();
+			return aimDir.LengthSq() > 0.0001;
+		}
+
+		if (m_eCurrentPlayer)
+		{
+			AimingComponent headAim = m_eCurrentPlayer.GetHeadAimingComponent();
+			if (!headAim)
+				return false;
+
+			aimDir = headAim.GetAimingDirectionWorld();
+			aimPos = m_eCurrentPlayer.EyePosition();
+			return aimDir.LengthSq() > 0.0001;
+		}
+
+		return false;
+	}
+
+	//------------------------------------------------------------------------------------------------
+	protected void ApplySaclosAimToActiveMissiles(vector aimDir, vector aimPos)
+	{
+		if (!Replication.IsServer() || aimDir.LengthSq() < 0.0001)
+			return;
+
+		PruneActiveSaclosMissiles();
+		foreach (BGONE_GuidedMissileComponent activeMissile : m_aActiveSaclosMissiles)
+		{
+			if (activeMissile && !activeMissile.IsDetonated())
+				activeMissile.UpdateTurretAim(aimDir, aimPos);
+		}
+	}
+
+	//------------------------------------------------------------------------------------------------
 	protected void CompleteServerLaunch(BGONE_TargetData targetData)
 	{
 		if (!Replication.IsServer() || !targetData || !m_eLastMissile)
 			return;
 
-		// Save reference to fired missile for saclos fix.
-		m_eLastMissileSaclos = m_eLastMissile;
+		// Track all active SACLOS missiles so multiple in-flight missiles receive aim updates.
+		PruneActiveSaclosMissiles();
+		if (m_eLastMissile.IsSaclosGuided() && !m_aActiveSaclosMissiles.Contains(m_eLastMissile))
+			m_aActiveSaclosMissiles.Insert(m_eLastMissile);
 
 		m_aDbgCollisionShapes = m_eLastMissile.onLaunched(targetData, this);
 		m_iServerLaunchCount = m_iServerLaunchCount + 1;
@@ -672,6 +743,32 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	//------------------------------------------------------------------------------------------------
 	void SaclosFix()
 	{
+		if (!Replication.IsServer())
+			return;
+
+		PruneActiveSaclosMissiles();
+		if (m_aActiveSaclosMissiles.IsEmpty())
+			return;
+
+		BaseWorld world = GetGame().GetWorld();
+		if (world)
+		{
+			float nowMs = world.GetWorldTime();
+			if (nowMs < m_fNextSaclosPollTime)
+				return;
+
+			m_fNextSaclosPollTime = nowMs + SACLOS_POLL_INTERVAL_MS;
+		}
+
+		if (IsLocallyOwned())
+		{
+			vector aimDir;
+			vector aimPos;
+			if (ResolveLocalSaclosAim(aimDir, aimPos))
+				ApplySaclosAimToActiveMissiles(aimDir, aimPos);
+			return;
+		}
+
 		Rpc(RpcDo_SaclosFix);
 	}
 
@@ -679,28 +776,14 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	[RplRpc(RplChannel.Unreliable, RplRcver.Owner)]
 	void RpcDo_SaclosFix()
 	{
-		vector aimDir = vector.Zero;
-		vector aimPos = vector.Zero;
-		if (m_eTurretController)
-		{
-			BaseSightsComponent sights = m_eTurretController.GetCurrentSights();
-			if (!sights)
-				return;
+		vector aimDir;
+		vector aimPos;
+		if (!ResolveLocalSaclosAim(aimDir, aimPos))
+			return;
 
-			aimDir = sights.GetSightsDirectionUntransformed();
-			aimPos = sights.GetSightsRearPosition();
-		}
-		else if (m_eCurrentPlayer)
+		if (Replication.IsServer())
 		{
-			AimingComponent headAim = m_eCurrentPlayer.GetHeadAimingComponent();
-			if (!headAim)
-				return;
-
-			aimDir = headAim.GetAimingDirectionWorld();
-			aimPos = m_eCurrentPlayer.EyePosition();
-		}
-		else
-		{
+			ApplySaclosAimToActiveMissiles(aimDir, aimPos);
 			return;
 		}
 
@@ -711,10 +794,10 @@ class BGONE_GuidedMissileLauncherComponent : ScriptGameComponent
 	[RplRpc(RplChannel.Unreliable, RplRcver.Server)]
 	void RpcAsk_SaclosFix(vector aimDir, vector aimPos)
 	{
-		if (m_eLastMissileSaclos)
-		{
-			m_eLastMissileSaclos.UpdateTurretAim(aimDir, aimPos);
-		}
+		if (!Replication.IsServer() || aimDir.LengthSq() < 0.0001)
+			return;
+
+		ApplySaclosAimToActiveMissiles(aimDir, aimPos);
 	}
 
 	//------------------------------------------------------------------------------------------------
